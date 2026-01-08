@@ -31,10 +31,21 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^1.0.8
+  # shadcn UI components
+  shadcn_flutter: ^0.0.47
+  
+  # Video player for background
   video_player: ^2.9.3
+  
+  # HTTP & WebSocket
+  http: ^1.2.0
+  web_socket_channel: ^3.0.1
+  
+  # Local storage for token
+  shared_preferences: ^2.3.3
+  
+  # Device info for unique ID
+  device_info_plus: ^11.3.3
 
 dev_dependencies:
   flutter_test:

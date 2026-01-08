@@ -1,0 +1,104 @@
+/// 테이블 상태 enum
+enum TableStatus {
+  available, // 빈테이블
+  occupied, // 이용중
+  reserved, // 예약
+  chatting, // 채팅중
+}
+
+/// 테이블 모델
+class TableModel {
+  final String id;
+  final String name;
+  final TableStatus status;
+  final int? guestCount;
+  final String? location;
+  final bool isChatting;
+  final DateTime? updatedAt;
+
+  const TableModel({
+    required this.id,
+    required this.name,
+    required this.status,
+    this.guestCount,
+    this.location,
+    this.isChatting = false,
+    this.updatedAt,
+  });
+
+  factory TableModel.fromJson(Map<String, dynamic> json) {
+    return TableModel(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      status: _parseStatus(json['status'] as String?),
+      guestCount: json['guestCount'] as int?,
+      location: json['location'] as String?,
+      isChatting: json['isChatting'] as bool? ?? false,
+      updatedAt: json['updatedAt'] != null
+          ? DateTime.parse(json['updatedAt'] as String)
+          : null,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'status': status.name,
+      'guestCount': guestCount,
+      'location': location,
+      'isChatting': isChatting,
+      'updatedAt': updatedAt?.toIso8601String(),
+    };
+  }
+
+  static TableStatus _parseStatus(String? status) {
+    switch (status) {
+      case 'available':
+        return TableStatus.available;
+      case 'occupied':
+        return TableStatus.occupied;
+      case 'reserved':
+        return TableStatus.reserved;
+      case 'chatting':
+        return TableStatus.chatting;
+      default:
+        return TableStatus.available;
+    }
+  }
+
+  TableModel copyWith({
+    String? id,
+    String? name,
+    TableStatus? status,
+    int? guestCount,
+    String? location,
+    bool? isChatting,
+    DateTime? updatedAt,
+  }) {
+    return TableModel(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      status: status ?? this.status,
+      guestCount: guestCount ?? this.guestCount,
+      location: location ?? this.location,
+      isChatting: isChatting ?? this.isChatting,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+}
+
+/// 인증 응답 모델
+class AuthResponse {
+  final String token;
+  final TableModel tableInfo;
+
+  const AuthResponse({required this.token, required this.tableInfo});
+
+  factory AuthResponse.fromJson(Map<String, dynamic> json) {
+    return AuthResponse(
+      token: json['token'] as String,
+      tableInfo: TableModel.fromJson(json['tableInfo'] as Map<String, dynamic>),
+    );
+  }
+}
