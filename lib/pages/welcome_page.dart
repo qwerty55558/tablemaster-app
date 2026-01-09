@@ -3,7 +3,7 @@ import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../widgets/connection_indicator.dart';
 import '../widgets/video_background.dart';
-import 'matching_page.dart';
+import 'setup_page.dart';
 
 /// 메인 환영 페이지 - 스크린세이버 역할
 class WelcomePage extends StatefulWidget {
@@ -46,12 +46,12 @@ class _WelcomePageState extends State<WelcomePage>
     super.dispose();
   }
 
-  void _navigateToMatching() {
+  void _navigateToSetup() {
     Navigator.push(
       context,
       PageRouteBuilder(
         pageBuilder: (context, animation, secondaryAnimation) =>
-            const MatchingPage(),
+            const SetupPage(),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           const begin = Offset(0.0, 1.0);
           const end = Offset.zero;
@@ -99,8 +99,8 @@ class _WelcomePageState extends State<WelcomePage>
         break;
 
       case AuthStatus.authenticated:
-        // 연결 상태 재확인 (화이트리스트 + 토큰 유효성)
-        success = await authService.verifyConnection();
+        // 연결 상태 재확인 (WebSocket으로 화이트리스트 검증)
+        success = await authService.verifyWebSocketConnection();
         break;
 
       default:
@@ -165,7 +165,7 @@ class _WelcomePageState extends State<WelcomePage>
         onVerticalDragEnd: (details) {
           // 위로 스와이프 감지 (velocity < -300)
           if (details.velocity.pixelsPerSecond.dy < -300) {
-            _navigateToMatching();
+            _navigateToSetup();
           }
         },
         child: VideoBackground(
@@ -188,7 +188,7 @@ class _WelcomePageState extends State<WelcomePage>
 
                       // 시작하기 버튼
                       PrimaryButton(
-                        onPressed: _navigateToMatching,
+                        onPressed: _navigateToSetup,
                         size: ButtonSize.large,
                         child: const Text('시작하기'),
                       ),

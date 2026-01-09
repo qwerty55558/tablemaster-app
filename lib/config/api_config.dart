@@ -27,5 +27,7 @@ class ApiConfig {
 
   // Business Endpoints
   static const String tables = '/tables';
+  static const String tableSetup = '/tables/setup';
+  static const String tableReset = '/tables'; // + /{tableId}/reset
   static const String chatRequest = '/chat/request';
 }

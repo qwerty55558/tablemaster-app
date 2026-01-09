@@ -24,16 +24,23 @@ class ApiService {
   AuthStatus get authStatus => _authService.status;
 
   /// 초기화 - AuthService 초기화 및 디바이스 로그인
+  /// HTTP 로그인 후 WebSocket 연결로 화이트리스트 검증
   Future<bool> initialize() async {
     await _authService.initialize();
 
-    // 이미 인증된 상태면 바로 반환
+    // 이미 인증된 상태면 WebSocket 검증만 수행
     if (_authService.isAuthenticated) {
-      return true;
+      return await _authService.verifyWebSocketConnection();
     }
 
     // 디바이스 로그인 시도
-    return await _authService.deviceLogin();
+    final loginSuccess = await _authService.deviceLogin();
+    if (!loginSuccess) {
+      return false;
+    }
+
+    // HTTP 로그인 성공 후 WebSocket 연결로 화이트리스트 검증
+    return await _authService.verifyWebSocketConnection();
   }
 
   /// 전체 테이블 목록 조회
@@ -59,6 +66,50 @@ class ApiService {
     }
   }
 
+  /// 테이블 설정 (입장 시)
+  Future<void> setupTable({
+    required String location,
+    required int guestCount,
+    required int femaleCount,
+    required int maleCount,
+  }) async {
+    // 테이블 ID 생성 (디바이스 ID 기반)
+    final tableId = deviceId ?? 'T${DateTime.now().millisecondsSinceEpoch}';
+
+    try {
+      final response = await http
+          .post(
+            Uri.parse('${ApiConfig.baseUrl}${ApiConfig.tableSetup}'),
+            headers: _authHeaders,
+            body: jsonEncode({
+              'tableId': tableId,
+              'location': location,
+              'guestCount': guestCount,
+              'femaleCount': femaleCount,
+              'maleCount': maleCount,
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        _currentTable = TableModel.fromJson(data);
+      } else {
+        throw Exception('테이블 설정 실패: ${response.statusCode}');
+      }
+    } catch (e) {
+      // 서버 연결 실패 시 로컬에만 저장
+      _currentTable = TableModel(
+        id: tableId,
+        name: tableId,
+        status: TableStatus.occupied,
+        guestCount: guestCount,
+        location: location,
+        isChatting: false,
+      );
+    }
+  }
+
   /// 채팅 요청
   Future<bool> requestChat(String targetTableId) async {
     if (!isConnected) return false;
@@ -76,6 +127,11 @@ class ApiService {
     } catch (e) {
       return false;
     }
+  }
+
+  /// 테이블 초기화 (리셋)
+  void resetCurrentTable() {
+    _currentTable = null;
   }
 
   /// 로그아웃

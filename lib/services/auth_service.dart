@@ -5,6 +5,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
+import 'websocket_service.dart';
 
 /// 인증 상태
 enum AuthStatus {
@@ -347,6 +348,41 @@ class AuthService {
     } catch (e) {
       _setStatus(AuthStatus.failed, '연결 확인 실패: $e');
       return false;
+    }
+  }
+
+  /// WebSocket 연결 끊김 알림
+  /// 재연결 실패 시 호출되어 상태를 failed로 변경
+  void notifyConnectionLost() {
+    _setStatus(AuthStatus.failed, 'WebSocket 연결이 끊어졌습니다');
+  }
+
+  /// WebSocket 연결로 화이트리스트 검증
+  /// HTTP 로그인 성공 후 호출하여 실제 연결 가능 여부 확인
+  Future<bool> verifyWebSocketConnection() async {
+    if (_accessToken == null) {
+      _setStatus(AuthStatus.failed, '토큰이 없습니다');
+      return false;
+    }
+
+    final wsService = WebSocketService();
+    final result = await wsService.connect();
+
+    switch (result) {
+      case WebSocketConnectionResult.success:
+        // WebSocket 연결 성공 = 화이트리스트 검증 완료
+        _setStatus(AuthStatus.authenticated);
+        return true;
+
+      case WebSocketConnectionResult.noToken:
+        _setStatus(AuthStatus.unregistered, '인증 토큰이 없습니다');
+        return false;
+
+      case WebSocketConnectionResult.failed:
+        // WebSocket 연결 실패 = 화이트리스트 미등록 또는 네트워크 오류
+        final error = wsService.lastConnectionError ?? 'WebSocket 연결 실패';
+        _setStatus(AuthStatus.failed, error);
+        return false;
     }
   }
 

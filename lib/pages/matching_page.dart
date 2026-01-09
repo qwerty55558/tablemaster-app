@@ -21,6 +21,7 @@ class _MatchingPageState extends State<MatchingPage> {
   bool _isLoading = true;
   TableModel? _selectedTable;
   StreamSubscription<List<TableModel>>? _tableSubscription;
+  StreamSubscription<TableResetEvent>? _resetSubscription;
 
   @override
   void initState() {
@@ -31,6 +32,7 @@ class _MatchingPageState extends State<MatchingPage> {
   @override
   void dispose() {
     _tableSubscription?.cancel();
+    _resetSubscription?.cancel();
     super.dispose();
   }
 
@@ -47,6 +49,35 @@ class _MatchingPageState extends State<MatchingPage> {
         _tables = tables;
       });
     });
+
+    // 테이블 초기화 이벤트 리스닝
+    _resetSubscription = _wsService.resetStream.listen((event) {
+      _handleTableReset(event);
+    });
+  }
+
+  void _handleTableReset(TableResetEvent event) {
+    // 현재 테이블이 초기화되었으면 웰컴 페이지로 이동
+    final currentTable = _apiService.currentTable;
+    if (currentTable != null && currentTable.id == event.tableId) {
+      _apiService.resetCurrentTable();
+
+      if (mounted) {
+        showToast(
+          context: context,
+          builder: (context, overlay) => SurfaceCard(
+            child: Basic(
+              title: const Text('테이블 초기화'),
+              subtitle: const Text('관리자에 의해 테이블이 초기화되었습니다'),
+              leading: const Icon(Icons.info_outline, color: AppColors.info),
+            ),
+          ),
+        );
+
+        // 웰컴 페이지로 이동
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+    }
   }
 
   void _onTableTap(TableModel table) {
@@ -813,19 +844,18 @@ class _MainContent extends StatelessWidget {
               ),
             ),
             child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Expanded(
-                  child: PrimaryButton(
-                    onPressed: isInteractive ? onChatRequest : null,
-                    size: ButtonSize.large,
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.chat_bubble_outline, size: 18),
-                        SizedBox(width: 8),
-                        Text('채팅 요청'),
-                      ],
-                    ),
+                PrimaryButton(
+                  onPressed: isInteractive ? onChatRequest : null,
+                  size: ButtonSize.normal,
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.chat_bubble_outline, size: 16),
+                      SizedBox(width: 6),
+                      Text('채팅 요청'),
+                    ],
                   ),
                 ),
               ],
