@@ -1,13 +1,15 @@
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
+import '../widgets/connection_indicator.dart';
 import '../widgets/video_background.dart';
 import 'matching_page.dart';
 
 /// 메인 환영 페이지 - 스크린세이버 역할
 class WelcomePage extends StatefulWidget {
-  final bool isConnected;
+  final AuthStatus authStatus;
 
-  const WelcomePage({super.key, required this.isConnected});
+  const WelcomePage({super.key, required this.authStatus});
 
   @override
   State<WelcomePage> createState() => _WelcomePageState();
@@ -22,13 +24,11 @@ class _WelcomePageState extends State<WelcomePage>
   late AnimationController _swipeHintController;
   late Animation<double> _swipeHintAnimation;
 
-  late bool _isConnected;
   bool _isRetrying = false;
 
   @override
   void initState() {
     super.initState();
-    _isConnected = widget.isConnected;
 
     _swipeHintController = AnimationController(
       duration: const Duration(milliseconds: 1500),
@@ -70,47 +70,91 @@ class _WelcomePageState extends State<WelcomePage>
     );
   }
 
-  Future<void> _retryConnection() async {
+  Future<void> _handleConnectionTap() async {
     if (_isRetrying) return;
+
+    final authService = ApiService().authService;
+    final currentStatus = authService.status;
 
     setState(() {
       _isRetrying = true;
     });
 
-    final success = await ApiService().registerDevice();
+    bool success = false;
+
+    switch (currentStatus) {
+      case AuthStatus.unregistered:
+        // 미등록 → 등록 요청
+        success = await authService.requestDeviceRegistration();
+        break;
+
+      case AuthStatus.pending:
+        // 대기 중 → 상태 확인
+        success = await authService.checkDeviceStatus();
+        break;
+
+      case AuthStatus.failed:
+        // 실패 → 재로그인 시도
+        success = await authService.deviceLogin();
+        break;
+
+      case AuthStatus.authenticated:
+        // 연결 상태 재확인 (화이트리스트 + 토큰 유효성)
+        success = await authService.verifyConnection();
+        break;
+
+      default:
+        break;
+    }
 
     if (mounted) {
       setState(() {
-        _isConnected = success;
         _isRetrying = false;
       });
 
-      if (success) {
-        showToast(
-          context: context,
-          builder: (context, overlay) => SurfaceCard(
-            child: Basic(
-              title: const Text('연결 성공'),
-              subtitle: const Text('서버에 연결되었습니다'),
-              leading: const Icon(Icons.check_circle, color: Color(0xFF22C55E)),
+      _showStatusToast(success);
+    }
+  }
+
+  void _showStatusToast(bool success) {
+    final authService = ApiService().authService;
+
+    if (success && authService.status == AuthStatus.authenticated) {
+      showToast(
+        context: context,
+        builder: (context, overlay) => SurfaceCard(
+          child: Basic(
+            title: const Text('연결 성공'),
+            subtitle: const Text('서버에 연결되었습니다'),
+            leading: const Icon(Icons.check_circle, color: Color(0xFF22C55E)),
+          ),
+        ),
+      );
+    } else if (authService.status == AuthStatus.pending) {
+      showToast(
+        context: context,
+        builder: (context, overlay) => SurfaceCard(
+          child: Basic(
+            title: const Text('등록 요청됨'),
+            subtitle: const Text('관리자 승인을 기다리고 있습니다'),
+            leading: const Icon(
+              Icons.hourglass_empty,
+              color: Color(0xFFF59E0B),
             ),
           ),
-        );
-      } else {
-        showToast(
-          context: context,
-          builder: (context, overlay) => SurfaceCard(
-            child: Basic(
-              title: const Text('연결 실패'),
-              subtitle: const Text('로컬 모드로 계속 진행합니다'),
-              leading: const Icon(
-                Icons.error_outline,
-                color: Color(0xFFF59E0B),
-              ),
-            ),
+        ),
+      );
+    } else if (authService.status == AuthStatus.failed) {
+      showToast(
+        context: context,
+        builder: (context, overlay) => SurfaceCard(
+          child: Basic(
+            title: const Text('연결 실패'),
+            subtitle: Text(authService.errorMessage ?? '서버에 연결할 수 없습니다'),
+            leading: const Icon(Icons.error_outline, color: Color(0xFFEF4444)),
           ),
-        );
-      }
+        ),
+      );
     }
   }
 
@@ -203,25 +247,21 @@ class _WelcomePageState extends State<WelcomePage>
                         ),
                       ),
 
-                      // 연결 실패 시 중지 아이콘
-                      if (!_isConnected)
-                        GhostButton(
-                          density: ButtonDensity.icon,
-                          onPressed: _isRetrying ? null : _retryConnection,
-                          child: _isRetrying
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Color(0xFFF59E0B),
-                                  ),
-                                )
-                              : const Icon(
-                                  Icons.cloud_off,
-                                  color: Color(0xFFEF4444),
+                      // 연결 상태 인디케이터
+                      GhostButton(
+                        density: ButtonDensity.icon,
+                        onPressed: _isRetrying ? null : _handleConnectionTap,
+                        child: _isRetrying
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Color(0xFFA1A1AA),
                                 ),
-                        ),
+                              )
+                            : ConnectionIndicator(status: widget.authStatus),
+                      ),
                     ],
                   ),
                 ),

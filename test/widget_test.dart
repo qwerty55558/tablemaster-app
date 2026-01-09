@@ -12,7 +12,7 @@ import 'package:app/main.dart';
 void main() {
   testWidgets('App launches smoke test', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp(isConnected: false));
+    await tester.pumpWidget(const MyApp());
 
     // Verify that welcome text is displayed.
     expect(find.text('환영합니다'), findsOneWidget);

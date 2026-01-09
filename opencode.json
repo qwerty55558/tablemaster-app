@@ -1,0 +1,52 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "build": {
+      "prompt": "Follow the global rules in AGENTS.md."
+    }
+  },
+  "tui": {
+    "scroll_speed": 1.0,
+    "scroll_acceleration": {
+      "enabled": true
+    }
+  },
+  "mcp": {
+    "figma_dev": {
+      "type": "remote",
+      "url": "http://127.0.0.1:3845/sse",
+      "enabled": true
+    },
+    "firecrawl_dev": {
+      "type": "local",
+      "command": ["npx", "-y", "firecrawl-mcp"],
+      "enabled": true,
+      "environment": {
+        "FIRECRAWL_API_KEY": "***REMOVED***"
+      }
+    },
+    "db-server_dev": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@bytebase/dbhub",
+        "--dsn",
+        "postgresql://postgres:postgres@localhost:5432/postgres"
+      ],
+      "enabled": true,
+      "timeout": 10000
+    },
+    "swagger_dev": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "swagger-mcp-server",
+        "/Users/personal-ai/Projects/personal/tableProject/be/swagger-config.json"
+      ],
+      "enabled": true,
+      "timeout": 30000
+    }
+  }
+}

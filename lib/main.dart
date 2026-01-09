@@ -1,23 +1,23 @@
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'services/api_service.dart';
+import 'services/auth_service.dart';
 import 'pages/welcome_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 앱 시작 시 토큰 클리어 (매번 새로 발급)
-  await ApiService().clearToken();
+  // 환경변수 로드
+  await dotenv.load(fileName: '.env');
 
-  // 디바이스 ID로 자동 등록 시도
-  final isConnected = await ApiService().registerDevice();
+  // 초기화 및 자동 로그인 시도
+  await ApiService().initialize();
 
-  runApp(MyApp(isConnected: isConnected));
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  final bool isConnected;
-
-  const MyApp({super.key, required this.isConnected});
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +26,15 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark,
       theme: ThemeData(colorScheme: LegacyColorSchemes.darkZinc(), radius: 0.5),
-      home: WelcomePage(isConnected: isConnected),
+      home: StreamBuilder<AuthStatus>(
+        stream: ApiService().authService.statusStream,
+        initialData: ApiService().authService.status,
+        builder: (context, snapshot) {
+          return WelcomePage(
+            authStatus: snapshot.data ?? AuthStatus.initializing,
+          );
+        },
+      ),
     );
   }
 }
