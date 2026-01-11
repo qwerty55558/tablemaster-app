@@ -197,33 +197,16 @@ class _SetupPageState extends State<SetupPage> {
   Widget _buildHeader() {
     return Container(
       padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          if (_currentStep > 0)
-            GhostButton(
-              density: ButtonDensity.icon,
-              onPressed: _previousStep,
-              child: const Icon(Icons.arrow_back, color: AppColors.foreground),
-            )
-          else
-            GhostButton(
-              density: ButtonDensity.icon,
-              onPressed: () => Navigator.pop(context),
-              child: const Icon(Icons.close, color: AppColors.foreground),
-            ),
-          Expanded(
-            child: Text(
-              _getStepTitle(),
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: AppColors.foreground,
-              ),
-              textAlign: TextAlign.center,
-            ),
+      child: Center(
+        child: Text(
+          _getStepTitle(),
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: AppColors.foreground,
           ),
-          const SizedBox(width: 40),
-        ],
+          textAlign: TextAlign.center,
+        ),
       ),
     );
   }
@@ -367,31 +350,32 @@ class _SetupPageState extends State<SetupPage> {
   }
 
   Widget _buildGuestCountStep() {
-    return Padding(
+    return Center(
       key: const ValueKey('guestCount'),
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            '몇 분이세요?',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: AppColors.foreground,
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const Text(
+              '몇 분이세요?',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: AppColors.foreground,
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            '총 인원 수를 선택해주세요',
-            style: TextStyle(
-              fontSize: 16,
-              color: AppColors.foregroundMuted,
+            const SizedBox(height: 8),
+            const Text(
+              '총 인원 수를 선택해주세요',
+              style: TextStyle(
+                fontSize: 16,
+                color: AppColors.foregroundMuted,
+              ),
             ),
-          ),
-          const SizedBox(height: 48),
-          Center(
-            child: Row(
+            const SizedBox(height: 48),
+            Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 _CounterButton(
@@ -428,18 +412,16 @@ class _SetupPageState extends State<SetupPage> {
                 ),
               ],
             ),
-          ),
-          const SizedBox(height: 16),
-          Center(
-            child: Text(
+            const SizedBox(height: 16),
+            Text(
               '명',
               style: TextStyle(
                 fontSize: 20,
                 color: AppColors.foregroundMuted,
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -510,21 +492,31 @@ class _SetupPageState extends State<SetupPage> {
           top: BorderSide(color: AppColors.border, width: 1),
         ),
       ),
-      child: Center(
-        child: PrimaryButton(
-          onPressed: _canProceed() && !_isLoading ? _nextStep : null,
-          size: ButtonSize.normal,
-          child: _isLoading
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: AppColors.primaryForeground,
-                  ),
-                )
-              : Text(_currentStep < 2 ? '다음' : '완료'),
-        ),
+      child: Row(
+        children: [
+          Expanded(
+            child: GhostButton(
+              onPressed: _currentStep == 0 ? () => Navigator.pop(context) : _previousStep,
+              child: Text(_currentStep == 0 ? '메인으로 가기' : '이전'),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: PrimaryButton(
+              onPressed: _canProceed() && !_isLoading ? _nextStep : null,
+              child: _isLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppColors.primaryForeground,
+                      ),
+                    )
+                  : Text(_currentStep < 2 ? '다음' : '완료'),
+            ),
+          ),
+        ],
       ),
     );
   }
