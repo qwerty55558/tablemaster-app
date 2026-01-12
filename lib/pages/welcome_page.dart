@@ -3,6 +3,7 @@ import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../widgets/connection_indicator.dart';
 import '../widgets/video_background.dart';
+import 'matching_page.dart';
 import 'setup_page.dart';
 
 /// 메인 환영 페이지 - 스크린세이버 역할
@@ -46,12 +47,18 @@ class _WelcomePageState extends State<WelcomePage>
     super.dispose();
   }
 
-  void _navigateToSetup() {
+  void _navigateToNextPage() {
+    final currentTable = ApiService().currentTable;
+
+    // 이미 테이블 설정이 되어있으면 MatchingPage로 이동
+    final Widget destination = currentTable != null
+        ? const MatchingPage()
+        : const SetupPage();
+
     Navigator.push(
       context,
       PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) =>
-            const SetupPage(),
+        pageBuilder: (context, animation, secondaryAnimation) => destination,
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           const begin = Offset(0.0, 1.0);
           const end = Offset.zero;
@@ -99,8 +106,8 @@ class _WelcomePageState extends State<WelcomePage>
         break;
 
       case AuthStatus.authenticated:
-        // 연결 상태 재확인 (WebSocket으로 화이트리스트 검증)
-        success = await authService.verifyWebSocketConnection();
+        // 연결 상태 재확인 (HTTP API로)
+        success = await authService.verifyConnection();
         break;
 
       default:
@@ -165,7 +172,7 @@ class _WelcomePageState extends State<WelcomePage>
         onVerticalDragEnd: (details) {
           // 위로 스와이프 감지 (velocity < -300)
           if (details.velocity.pixelsPerSecond.dy < -300) {
-            _navigateToSetup();
+            _navigateToNextPage();
           }
         },
         child: VideoBackground(
@@ -188,7 +195,7 @@ class _WelcomePageState extends State<WelcomePage>
 
                       // 시작하기 버튼
                       PrimaryButton(
-                        onPressed: _navigateToSetup,
+                        onPressed: _navigateToNextPage,
                         size: ButtonSize.large,
                         child: const Text('시작하기'),
                       ),

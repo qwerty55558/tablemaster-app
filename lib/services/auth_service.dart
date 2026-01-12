@@ -73,6 +73,7 @@ class AuthService {
   AuthStatus _status = AuthStatus.initializing;
   String? _errorMessage;
   int? _pendingTtl; // 등록 대기 TTL (초)
+  Timer? _pendingPollTimer; // pending 상태 polling
 
   // 상태 변경 스트림
   final _statusController = StreamController<AuthStatus>.broadcast();
@@ -101,6 +102,7 @@ class AuthService {
   }
 
   /// 초기화 - 저장된 토큰 로드 및 디바이스 ID 획득
+  /// 토큰이 있어도 서버 검증 전까지는 initializing 상태 유지
   Future<void> initialize() async {
     _setStatus(AuthStatus.initializing);
 
@@ -112,10 +114,8 @@ class AuthService {
       // 디바이스 ID 획득
       _deviceId = await _getDeviceId();
 
-      // 토큰이 있으면 인증된 상태
-      if (_accessToken != null) {
-        _setStatus(AuthStatus.authenticated);
-      }
+      // 토큰이 있어도 서버 검증 전까지는 initializing 유지
+      // verifyWebSocketConnection()에서 실제 검증 후 상태 변경
     } catch (e) {
       _setStatus(AuthStatus.failed, '초기화 실패: $e');
     }
@@ -235,10 +235,14 @@ class AuthService {
           )
           .timeout(const Duration(seconds: 10));
 
+      print('[AUTH] 등록 요청 응답: ${response.statusCode} - ${response.body}');
+
       if (response.statusCode == 200 || response.statusCode == 201) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
-        _pendingTtl = data['ttl'] as int?;
+        final ttl = data['ttl'];
+        _pendingTtl = ttl is int ? ttl : int.tryParse(ttl?.toString() ?? '');
         _setStatus(AuthStatus.pending, '관리자 승인 대기 중');
+        _startPendingPoll();
         return true;
       }
 
@@ -248,8 +252,11 @@ class AuthService {
         return await checkDeviceStatus();
       }
 
-      final errorBody = jsonDecode(response.body);
-      final message = errorBody['message'] ?? '등록 요청 실패';
+      String message = '등록 요청 실패';
+      try {
+        final errorBody = jsonDecode(response.body) as Map<String, dynamic>;
+        message = errorBody['message'] as String? ?? '등록 요청 실패';
+      } catch (_) {}
       _setStatus(AuthStatus.failed, message);
       return false;
     } on TimeoutException {
@@ -286,16 +293,20 @@ class AuthService {
 
         switch (status) {
           case 'approved':
-            // 승인됨 → 로그인 재시도
+            // 승인됨 → polling 중지 후 로그인
+            _stopPendingPoll();
             return await deviceLogin();
 
           case 'pending':
-            _pendingTtl = data['ttl'] as int?;
+            final ttl = data['ttl'];
+            _pendingTtl = ttl is int ? ttl : int.tryParse(ttl?.toString() ?? '');
             _setStatus(AuthStatus.pending, '관리자 승인 대기 중');
+            // polling은 이미 실행 중이면 유지
             return false;
 
           case 'not_found':
           default:
+            _stopPendingPoll();
             _setStatus(AuthStatus.unregistered, '등록 정보가 없습니다');
             return false;
         }
@@ -307,13 +318,15 @@ class AuthService {
     }
   }
 
-  /// 연결 상태 검증 (화이트리스트 + 토큰 유효성)
+  /// 디바이스 상태 확인 및 로그인
   Future<bool> verifyConnection() async {
-    if (_deviceId == null) return false;
+    if (_deviceId == null) {
+      _setStatus(AuthStatus.failed, '디바이스 ID가 없습니다');
+      return false;
+    }
 
     try {
-      // 1. 화이트리스트 등록 여부 확인
-      final statusResponse = await http
+      final response = await http
           .get(
             Uri.parse(
               '${ApiConfig.baseUrl}${ApiConfig.deviceStatus}/$_deviceId',
@@ -322,23 +335,33 @@ class AuthService {
           )
           .timeout(const Duration(seconds: 10));
 
-      if (statusResponse.statusCode != 200) {
+      if (response.statusCode != 200) {
         _setStatus(AuthStatus.failed, '서버 연결 실패');
         return false;
       }
 
-      final data = jsonDecode(statusResponse.body) as Map<String, dynamic>;
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
       final status = data['status'] as String?;
 
-      if (status != 'approved') {
-        // 화이트리스트에서 삭제됨
-        await _clearTokens();
-        _setStatus(AuthStatus.unregistered, '등록이 해제되었습니다');
-        return false;
-      }
+      switch (status) {
+        case 'approved':
+          // 승인됨 → 로그인
+          return await deviceLogin();
 
-      // 2. 토큰 유효성 확인 (deviceLogin 재시도)
-      return await deviceLogin();
+        case 'pending':
+          // 대기 중 → polling 시작
+          final ttl = data['ttl'];
+          _pendingTtl = ttl is int ? ttl : int.tryParse(ttl?.toString() ?? '');
+          _setStatus(AuthStatus.pending, '관리자 승인 대기 중');
+          _startPendingPoll();
+          return false;
+
+        default:
+          // 미등록 또는 삭제됨
+          await _clearTokens();
+          _setStatus(AuthStatus.unregistered, '등록되지 않은 디바이스입니다');
+          return false;
+      }
     } on TimeoutException {
       _setStatus(AuthStatus.failed, '서버 연결 시간 초과');
       return false;
@@ -441,6 +464,12 @@ class AuthService {
     _setStatus(AuthStatus.initializing);
   }
 
+  /// 디바이스 삭제 처리 (서버에서 DEVICE_DELETED 수신 시)
+  Future<void> handleDeviceDeleted() async {
+    await _clearTokens();
+    _setStatus(AuthStatus.unregistered, '디바이스가 삭제되었습니다');
+  }
+
   /// 토큰 저장
   Future<void> _saveTokens(AuthTokens tokens) async {
     _accessToken = tokens.accessToken;
@@ -465,8 +494,35 @@ class AuthService {
     if (_accessToken != null) 'Authorization': 'Bearer $_accessToken',
   };
 
+  /// pending 상태 polling 시작 (5초마다 상태 확인)
+  void _startPendingPoll() {
+    _stopPendingPoll();
+    print('[AUTH] pending polling 시작');
+    _pendingPollTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) async {
+        if (_status == AuthStatus.pending) {
+          print('[AUTH] pending 상태 확인 중...');
+          await checkDeviceStatus();
+        } else {
+          _stopPendingPoll();
+        }
+      },
+    );
+  }
+
+  /// pending 상태 polling 중지
+  void _stopPendingPoll() {
+    if (_pendingPollTimer != null) {
+      print('[AUTH] pending polling 중지');
+      _pendingPollTimer?.cancel();
+      _pendingPollTimer = null;
+    }
+  }
+
   /// 리소스 해제
   void dispose() {
+    _stopPendingPoll();
     _statusController.close();
   }
 }

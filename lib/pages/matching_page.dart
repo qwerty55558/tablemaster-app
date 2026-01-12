@@ -43,24 +43,24 @@ class _MatchingPageState extends State<MatchingPage> {
       _isLoading = false;
     });
 
-    await _wsService.connect();
+    // WebSocket은 전역에서 관리 (main.dart)
+    // 스트림만 구독
     _tableSubscription = _wsService.tableStream.listen((tables) {
       setState(() {
         _tables = tables;
       });
     });
 
-    // 테이블 초기화 이벤트 리스닝
     _resetSubscription = _wsService.resetStream.listen((event) {
       _handleTableReset(event);
     });
   }
 
-  void _handleTableReset(TableResetEvent event) {
+  Future<void> _handleTableReset(TableResetEvent event) async {
     // 현재 테이블이 초기화되었으면 웰컴 페이지로 이동
     final currentTable = _apiService.currentTable;
     if (currentTable != null && currentTable.id == event.tableId) {
-      _apiService.resetCurrentTable();
+      await _apiService.resetCurrentTable();
 
       if (mounted) {
         showToast(
@@ -284,6 +284,8 @@ class _TableSidebar extends StatelessWidget {
             child: Center(
               child: Text(
                 table.name,
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
@@ -307,12 +309,16 @@ class _TableSidebar extends StatelessWidget {
                 const SizedBox(height: 2),
                 Row(
                   children: [
-                    Text(
-                      '${table.name} 테이블',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.foreground,
+                    Flexible(
+                      child: Text(
+                        '${table.name} 테이블',
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.foreground,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -479,6 +485,8 @@ class _TableListItem extends StatelessWidget {
               child: Center(
                 child: Text(
                   table.name,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
@@ -719,6 +727,8 @@ class _MainContent extends StatelessWidget {
                   child: Center(
                     child: Text(
                       table.name,
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
@@ -734,6 +744,8 @@ class _MainContent extends StatelessWidget {
                     children: [
                       Text(
                         '${table.name} 테이블',
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
                         style: const TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.bold,

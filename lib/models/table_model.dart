@@ -53,7 +53,7 @@ class TableModel {
   }
 
   static TableStatus _parseStatus(String? status) {
-    switch (status) {
+    switch (status?.toLowerCase()) {
       case 'available':
         return TableStatus.available;
       case 'occupied':

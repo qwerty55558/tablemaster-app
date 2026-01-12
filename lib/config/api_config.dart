@@ -9,6 +9,7 @@ class ApiConfig {
 
   static String get baseUrl => 'http://$_apiHost:$_apiPort/api/v1';
   static String get wsUrl => 'ws://$_wsHost:$_wsPort/ws';
+  static String get wsBaseUrl => 'http://$_wsHost:$_wsPort/ws';  // STOMP + SockJS용
 
   // App Secret (디바이스 인증용)
   static String get appSecret => dotenv.env['APP_SECRET'] ?? '';

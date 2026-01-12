@@ -15,6 +15,9 @@ class _SetupPageState extends State<SetupPage> {
   int _currentStep = 0;
   bool _isLoading = false;
 
+  // Step 0: 테이블 이름
+  final TextEditingController _tableNameController = TextEditingController();
+
   // Step 1: 지역
   String? _selectedLocation;
   final List<String> _locations = ['서울', '부산', '인천', '대구', '광주', '대전', '울산', '경기'];
@@ -32,6 +35,12 @@ class _SetupPageState extends State<SetupPage> {
   void initState() {
     super.initState();
     _initGenderRatio();
+  }
+
+  @override
+  void dispose() {
+    _tableNameController.dispose();
+    super.dispose();
   }
 
   void _initGenderRatio() {
@@ -86,10 +95,12 @@ class _SetupPageState extends State<SetupPage> {
   bool _canProceed() {
     switch (_currentStep) {
       case 0:
-        return _selectedLocation != null;
+        return _tableNameController.text.trim().isNotEmpty;
       case 1:
-        return _guestCount >= _minGuests;
+        return _selectedLocation != null;
       case 2:
+        return _guestCount >= _minGuests;
+      case 3:
         return _femaleCount + _maleCount == _guestCount;
       default:
         return false;
@@ -97,10 +108,10 @@ class _SetupPageState extends State<SetupPage> {
   }
 
   void _nextStep() {
-    if (_currentStep < 2) {
+    if (_currentStep < 3) {
       setState(() {
         _currentStep++;
-        if (_currentStep == 2) {
+        if (_currentStep == 3) {
           _updateGenderRatio();
         }
       });
@@ -124,6 +135,7 @@ class _SetupPageState extends State<SetupPage> {
 
     try {
       await ApiService().setupTable(
+        name: _tableNameController.text.trim(),
         location: _selectedLocation!,
         guestCount: _guestCount,
         femaleCount: _femaleCount,
@@ -214,10 +226,12 @@ class _SetupPageState extends State<SetupPage> {
   String _getStepTitle() {
     switch (_currentStep) {
       case 0:
-        return '지역 선택';
+        return '테이블 이름';
       case 1:
-        return '인원 선택';
+        return '지역 선택';
       case 2:
+        return '인원 선택';
+      case 3:
         return '성비 선택';
       default:
         return '';
@@ -228,7 +242,7 @@ class _SetupPageState extends State<SetupPage> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
       child: Row(
-        children: List.generate(3, (index) {
+        children: List.generate(4, (index) {
           final isActive = index <= _currentStep;
           final isCompleted = index < _currentStep;
           return Expanded(
@@ -256,7 +270,7 @@ class _SetupPageState extends State<SetupPage> {
                           ),
                   ),
                 ),
-                if (index < 2)
+                if (index < 3)
                   Expanded(
                     child: Container(
                       height: 2,
@@ -276,75 +290,126 @@ class _SetupPageState extends State<SetupPage> {
   Widget _buildStepContent() {
     switch (_currentStep) {
       case 0:
-        return _buildLocationStep();
+        return _buildTableNameStep();
       case 1:
-        return _buildGuestCountStep();
+        return _buildLocationStep();
       case 2:
+        return _buildGuestCountStep();
+      case 3:
         return _buildGenderRatioStep();
       default:
         return const SizedBox();
     }
   }
 
+  Widget _buildTableNameStep() {
+    return Center(
+      key: const ValueKey('tableName'),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const Text(
+              '테이블 이름을 입력해주세요',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: AppColors.foreground,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '다른 테이블에서 보이는 이름입니다',
+              style: TextStyle(
+                fontSize: 16,
+                color: AppColors.foregroundMuted,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 32),
+            SizedBox(
+              width: 280,
+              child: TextField(
+                controller: _tableNameController,
+                placeholder: const Text('예: 우리팀, 친구들, A1'),
+                onChanged: (_) => setState(() {}),
+                style: const TextStyle(fontSize: 18),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildLocationStep() {
-    return Padding(
+    return Center(
       key: const ValueKey('location'),
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            '어디에서 오셨나요?',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: AppColors.foreground,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const Text(
+              '어디에서 오셨나요?',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: AppColors.foreground,
+              ),
+              textAlign: TextAlign.center,
             ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            '지역을 선택해주세요',
-            style: TextStyle(
-              fontSize: 16,
-              color: AppColors.foregroundMuted,
+            const SizedBox(height: 8),
+            const Text(
+              '지역을 선택해주세요',
+              style: TextStyle(
+                fontSize: 16,
+                color: AppColors.foregroundMuted,
+              ),
+              textAlign: TextAlign.center,
             ),
-          ),
-          const SizedBox(height: 32),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: _locations.map((location) {
-              final isSelected = _selectedLocation == location;
-              return GestureDetector(
-                onTap: () {
-                  setState(() {
-                    _selectedLocation = location;
-                  });
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                  decoration: BoxDecoration(
-                    color: isSelected ? AppColors.primary : AppColors.backgroundCard,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: isSelected ? AppColors.primary : AppColors.border,
+            const SizedBox(height: 32),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 12,
+              runSpacing: 12,
+              children: _locations.map((location) {
+                final isSelected = _selectedLocation == location;
+                return GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _selectedLocation = location;
+                    });
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                    decoration: BoxDecoration(
+                      color: isSelected ? AppColors.primary : AppColors.backgroundCard,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isSelected ? AppColors.primary : AppColors.border,
+                      ),
+                    ),
+                    child: Text(
+                      location,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: isSelected
+                            ? AppColors.primaryForeground
+                            : AppColors.foreground,
+                      ),
                     ),
                   ),
-                  child: Text(
-                    location,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                      color: isSelected
-                          ? AppColors.primaryForeground
-                          : AppColors.foreground,
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-        ],
+                );
+              }).toList(),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -353,7 +418,7 @@ class _SetupPageState extends State<SetupPage> {
     return Center(
       key: const ValueKey('guestCount'),
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.center,
@@ -365,6 +430,7 @@ class _SetupPageState extends State<SetupPage> {
                 fontWeight: FontWeight.bold,
                 color: AppColors.foreground,
               ),
+              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
             const Text(
@@ -373,6 +439,7 @@ class _SetupPageState extends State<SetupPage> {
                 fontSize: 16,
                 color: AppColors.foregroundMuted,
               ),
+              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 48),
             Row(
@@ -413,7 +480,7 @@ class _SetupPageState extends State<SetupPage> {
               ],
             ),
             const SizedBox(height: 16),
-            Text(
+            const Text(
               '명',
               style: TextStyle(
                 fontSize: 20,
@@ -427,59 +494,64 @@ class _SetupPageState extends State<SetupPage> {
   }
 
   Widget _buildGenderRatioStep() {
-    return Padding(
+    return Center(
       key: const ValueKey('genderRatio'),
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            '성비를 알려주세요',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: AppColors.foreground,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '총 $_guestCount명의 성비를 조절해주세요',
-            style: const TextStyle(
-              fontSize: 16,
-              color: AppColors.foregroundMuted,
-            ),
-          ),
-          const SizedBox(height: 48),
-          Row(
-            children: [
-              // 여성
-              Expanded(
-                child: _GenderCard(
-                  label: '여성',
-                  count: _femaleCount,
-                  color: const Color(0xFFEC4899),
-                  onIncrement: _incrementFemale,
-                  onDecrement: _decrementFemale,
-                  canIncrement: _maleCount > 0,
-                  canDecrement: _femaleCount > 0,
-                ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const Text(
+              '성비를 알려주세요',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: AppColors.foreground,
               ),
-              const SizedBox(width: 16),
-              // 남성
-              Expanded(
-                child: _GenderCard(
-                  label: '남성',
-                  count: _maleCount,
-                  color: const Color(0xFF3B82F6),
-                  onIncrement: _incrementMale,
-                  onDecrement: _decrementMale,
-                  canIncrement: _femaleCount > 0,
-                  canDecrement: _maleCount > 0,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '총 $_guestCount명의 성비를 조절해주세요',
+              style: const TextStyle(
+                fontSize: 16,
+                color: AppColors.foregroundMuted,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 48),
+            Row(
+              children: [
+                // 여성
+                Expanded(
+                  child: _GenderCard(
+                    label: '여성',
+                    count: _femaleCount,
+                    color: const Color(0xFFEC4899),
+                    onIncrement: _incrementFemale,
+                    onDecrement: _decrementFemale,
+                    canIncrement: _maleCount > 0,
+                    canDecrement: _femaleCount > 0,
+                  ),
                 ),
+                const SizedBox(width: 16),
+                // 남성
+                Expanded(
+                  child: _GenderCard(
+                    label: '남성',
+                    count: _maleCount,
+                    color: const Color(0xFF3B82F6),
+                    onIncrement: _incrementMale,
+                    onDecrement: _decrementMale,
+                    canIncrement: _femaleCount > 0,
+                    canDecrement: _maleCount > 0,
+                  ),
               ),
             ],
           ),
         ],
+      ),
       ),
     );
   }
@@ -513,7 +585,7 @@ class _SetupPageState extends State<SetupPage> {
                         color: AppColors.primaryForeground,
                       ),
                     )
-                  : Text(_currentStep < 2 ? '다음' : '완료'),
+                  : Text(_currentStep < 3 ? '다음' : '완료'),
             ),
           ),
         ],

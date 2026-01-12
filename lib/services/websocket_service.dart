@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:stomp_dart_client/stomp_dart_client.dart';
 import '../config/api_config.dart';
 import '../models/table_model.dart';
 import 'api_service.dart';
@@ -25,9 +25,9 @@ enum WebSocketConnectionResult {
   failed,
 }
 
-/// WebSocket 서비스 - 실시간 테이블 데이터 수신
+/// STOMP WebSocket 서비스 - 실시간 테이블 데이터 수신
 class WebSocketService {
-  WebSocketChannel? _channel;
+  StompClient? _stompClient;
   final _tableStreamController = StreamController<List<TableModel>>.broadcast();
   final _resetStreamController = StreamController<TableResetEvent>.broadcast();
   final _connectionResultController =
@@ -38,6 +38,7 @@ class WebSocketService {
   static const int _maxReconnectAttempts = 3;
   Timer? _reconnectTimer;
   String? _lastConnectionError;
+  Completer<WebSocketConnectionResult>? _connectCompleter;
 
   // Singleton
   static final WebSocketService _instance = WebSocketService._internal();
@@ -51,16 +52,15 @@ class WebSocketService {
   bool get isConnected => _isConnected;
   String? get lastConnectionError => _lastConnectionError;
 
-  /// WebSocket 연결
+  /// STOMP 연결
   /// 연결 결과를 반환하여 화이트리스트 검증에 활용
   Future<WebSocketConnectionResult> connect() async {
     // 이미 연결된 상태면 성공 반환
     if (_isConnected) return WebSocketConnectionResult.success;
 
     // 이미 연결 중이면 대기
-    if (_isConnecting) {
-      // 연결 결과를 기다림
-      return await connectionResultStream.first;
+    if (_isConnecting && _connectCompleter != null) {
+      return await _connectCompleter!.future;
     }
 
     // 토큰이 없으면 연결하지 않음
@@ -74,55 +74,126 @@ class WebSocketService {
 
     _isConnecting = true;
     _lastConnectionError = null;
+    _connectCompleter = Completer<WebSocketConnectionResult>();
 
-    try {
-      final uri = Uri.parse('${ApiConfig.wsUrl}?token=$token');
-      _channel = WebSocketChannel.connect(uri);
+    print('[WS] STOMP 연결 시도: ${ApiConfig.wsBaseUrl}');
+    print('[WS] Token: ${token.substring(0, 20)}...');
 
-      // 실제 연결 완료까지 대기 (타임아웃 10초)
-      await _channel!.ready.timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutException('WebSocket 연결 시간 초과'),
-      );
+    _stompClient = StompClient(
+      config: StompConfig.sockJS(
+        url: ApiConfig.wsBaseUrl,
+        stompConnectHeaders: {
+          'Authorization': 'Bearer $token',
+        },
+        onConnect: _onConnect,
+        onDisconnect: _onDisconnect,
+        onStompError: _onStompError,
+        onWebSocketError: _onWebSocketError,
+        onDebugMessage: (msg) => print('[WS-DEBUG] $msg'),
+        reconnectDelay: const Duration(seconds: 5),
+      ),
+    );
 
-      _isConnected = true;
-      _isConnecting = false;
-      _reconnectAttempts = 0; // 연결 성공 시 재시도 횟수 리셋
+    _stompClient!.activate();
 
-      _channel!.stream.listen(
-        _onMessage,
-        onError: _onError,
-        onDone: _onDone,
-        cancelOnError: true,
-      );
-
-      _connectionResultController.add(WebSocketConnectionResult.success);
-      return WebSocketConnectionResult.success;
-    } catch (e) {
-      _isConnected = false;
-      _isConnecting = false;
-      _channel = null;
-      _lastConnectionError = e.toString();
-
-      // 연결 실패 시 더미 데이터로 폴백
-      _emitDummyData();
-
-      _connectionResultController.add(WebSocketConnectionResult.failed);
-
-      // 재연결 시도 (최대 횟수 제한)
-      _scheduleReconnect();
-
-      return WebSocketConnectionResult.failed;
-    }
+    // 타임아웃 설정 (10초)
+    return await _connectCompleter!.future.timeout(
+      const Duration(seconds: 10),
+      onTimeout: () {
+        _isConnecting = false;
+        _lastConnectionError = 'STOMP 연결 시간 초과';
+        _stompClient?.deactivate();
+        _stompClient = null;
+        _emitDummyData();
+        final result = WebSocketConnectionResult.failed;
+        _connectionResultController.add(result);
+        if (!_connectCompleter!.isCompleted) {
+          _connectCompleter!.complete(result);
+        }
+        _scheduleReconnect();
+        return result;
+      },
+    );
   }
 
-  /// WebSocket 연결 해제
+  /// STOMP 연결 성공 콜백
+  void _onConnect(StompFrame frame) {
+    print('[WS] STOMP 연결 성공');
+    _isConnected = true;
+    _isConnecting = false;
+    _reconnectAttempts = 0;
+
+    final result = WebSocketConnectionResult.success;
+    _connectionResultController.add(result);
+    if (_connectCompleter != null && !_connectCompleter!.isCompleted) {
+      _connectCompleter!.complete(result);
+    }
+
+    // /user/queue/notifications 구독 (Spring이 세션 기반으로 라우팅)
+    print('[WS] /user/queue/notifications 구독');
+    _stompClient!.subscribe(
+      destination: '/user/queue/notifications',
+      callback: _onNotificationMessage,
+    );
+
+    // /user/queue/chat 구독
+    print('[WS] /user/queue/chat 구독');
+    _stompClient!.subscribe(
+      destination: '/user/queue/chat',
+      callback: _onChatMessage,
+    );
+  }
+
+  /// STOMP 연결 해제 콜백
+  void _onDisconnect(StompFrame frame) {
+    print('[WS] 연결 해제됨: ${frame.body}');
+    _isConnected = false;
+    _isConnecting = false;
+    _scheduleReconnect();
+  }
+
+  /// STOMP 에러 콜백
+  void _onStompError(StompFrame frame) {
+    print('[WS] STOMP 에러: ${frame.command} - ${frame.body}');
+    print('[WS] STOMP 헤더: ${frame.headers}');
+    _isConnected = false;
+    _isConnecting = false;
+    _lastConnectionError = frame.body ?? 'STOMP 에러';
+
+    final result = WebSocketConnectionResult.failed;
+    _connectionResultController.add(result);
+    if (_connectCompleter != null && !_connectCompleter!.isCompleted) {
+      _connectCompleter!.complete(result);
+    }
+
+    _emitDummyData();
+    _scheduleReconnect();
+  }
+
+  /// WebSocket 에러 콜백
+  void _onWebSocketError(dynamic error) {
+    print('[WS] WebSocket 에러: $error');
+    _isConnected = false;
+    _isConnecting = false;
+    _lastConnectionError = error.toString();
+
+    final result = WebSocketConnectionResult.failed;
+    _connectionResultController.add(result);
+    if (_connectCompleter != null && !_connectCompleter!.isCompleted) {
+      _connectCompleter!.complete(result);
+    }
+
+    _emitDummyData();
+    _scheduleReconnect();
+  }
+
+  /// STOMP 연결 해제
   void disconnect() {
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _reconnectAttempts = 0;
-    _channel?.sink.close();
-    _channel = null;
+    _stompClient?.deactivate();
+    _stompClient = null;
     _isConnected = false;
     _isConnecting = false;
   }
@@ -161,17 +232,27 @@ class WebSocketService {
       return;
     }
 
-    // 4. 새 토큰으로 WebSocket 재연결
+    // 4. 새 토큰으로 STOMP 재연결
     await connect();
   }
 
-  /// 메시지 수신 처리
-  void _onMessage(dynamic message) {
+  /// 알림 메시지 수신 처리
+  void _onNotificationMessage(StompFrame frame) {
+    print('[WS] 메시지 수신: ${frame.body}');
+
+    if (frame.body == null) return;
+
     try {
-      final data = jsonDecode(message as String);
+      final data = jsonDecode(frame.body!) as Map<String, dynamic>;
       final type = data['type'] as String?;
+      print('[WS] 메시지 타입: $type');
 
       switch (type) {
+        case 'DEVICE_DELETED':
+          print('[WS] DEVICE_DELETED 처리 시작');
+          _handleDeviceDeleted(data);
+          break;
+
         case 'tables_update':
           final List<dynamic> tablesData = data['tables'] as List<dynamic>;
           final tables = tablesData
@@ -188,24 +269,32 @@ class WebSocketService {
             timestamp: timestamp,
           ));
           break;
+
+        default:
+          print('[WS] 알 수 없는 메시지 타입: $type');
       }
     } catch (e) {
-      // 파싱 에러 무시
+      print('[WS] 메시지 파싱 에러: $e');
     }
   }
 
-  void _onError(dynamic error) {
-    _isConnected = false;
-    _isConnecting = false;
-    _channel = null;
-    _scheduleReconnect();
+  /// 채팅 메시지 수신 처리
+  void _onChatMessage(StompFrame frame) {
+    if (frame.body == null) return;
+
+    // TODO: 채팅 메시지 처리 로직 추가
   }
 
-  void _onDone() {
-    _isConnected = false;
-    _isConnecting = false;
-    _channel = null;
-    _scheduleReconnect();
+  /// 디바이스 삭제 처리
+  void _handleDeviceDeleted(Map<String, dynamic> data) {
+    print('[WS] _handleDeviceDeleted 호출됨');
+
+    // 1. STOMP 연결 해제
+    disconnect();
+
+    // 2. AuthService에 알림 → 토큰 삭제 + unregistered 상태
+    print('[WS] authService.handleDeviceDeleted 호출');
+    ApiService().authService.handleDeviceDeleted();
   }
 
   /// 더미 데이터 emit (개발용)

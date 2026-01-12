@@ -1,19 +1,31 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../config/api_config.dart';
 import '../models/table_model.dart';
 import 'auth_service.dart';
+import 'http_client.dart';
 
 /// API 서비스 - HTTP 통신
 class ApiService {
   final AuthService _authService = AuthService();
+  late final AuthenticatedClient _client;
+
+  static const String _currentTableKey = 'current_table';
+  static const _storage = FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock_this_device,
+    ),
+  );
 
   TableModel? _currentTable;
 
   // Singleton
   static final ApiService _instance = ApiService._internal();
   factory ApiService() => _instance;
-  ApiService._internal();
+  ApiService._internal() {
+    _client = AuthenticatedClient(_authService);
+  }
 
   AuthService get authService => _authService;
   String? get token => _authService.accessToken;
@@ -23,34 +35,42 @@ class ApiService {
   bool get isConnected => _authService.status == AuthStatus.authenticated;
   AuthStatus get authStatus => _authService.status;
 
-  /// 초기화 - AuthService 초기화 및 디바이스 로그인
-  /// HTTP 로그인 후 WebSocket 연결로 화이트리스트 검증
+  /// 초기화 - AuthService 초기화 및 디바이스 상태 확인
   Future<bool> initialize() async {
     await _authService.initialize();
+    await _loadCurrentTable();
 
-    // 이미 인증된 상태면 WebSocket 검증만 수행
-    if (_authService.isAuthenticated) {
-      return await _authService.verifyWebSocketConnection();
+    // HTTP API로 디바이스 상태 확인 후 로그인
+    return await _authService.verifyConnection();
+  }
+
+  /// 저장된 테이블 정보 로드
+  Future<void> _loadCurrentTable() async {
+    try {
+      final json = await _storage.read(key: _currentTableKey);
+      if (json != null) {
+        _currentTable = TableModel.fromJson(jsonDecode(json) as Map<String, dynamic>);
+      }
+    } catch (e) {
+      // 로드 실패 시 무시
     }
+  }
 
-    // 디바이스 로그인 시도
-    final loginSuccess = await _authService.deviceLogin();
-    if (!loginSuccess) {
-      return false;
+  /// 현재 테이블 정보 저장
+  Future<void> _saveCurrentTable() async {
+    if (_currentTable != null) {
+      await _storage.write(
+        key: _currentTableKey,
+        value: jsonEncode(_currentTable!.toJson()),
+      );
     }
-
-    // HTTP 로그인 성공 후 WebSocket 연결로 화이트리스트 검증
-    return await _authService.verifyWebSocketConnection();
   }
 
   /// 전체 테이블 목록 조회
   Future<List<TableModel>> getTables() async {
     try {
-      final response = await http
-          .get(
-            Uri.parse('${ApiConfig.baseUrl}${ApiConfig.tables}'),
-            headers: _authHeaders,
-          )
+      final response = await _client
+          .get(Uri.parse('${ApiConfig.baseUrl}${ApiConfig.tables}'))
           .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -68,21 +88,22 @@ class ApiService {
 
   /// 테이블 설정 (입장 시)
   Future<void> setupTable({
+    required String name,
     required String location,
     required int guestCount,
     required int femaleCount,
     required int maleCount,
   }) async {
-    // 테이블 ID 생성 (디바이스 ID 기반)
+    // 테이블 ID = 디바이스 ID (PK)
     final tableId = deviceId ?? 'T${DateTime.now().millisecondsSinceEpoch}';
 
     try {
-      final response = await http
+      final response = await _client
           .post(
             Uri.parse('${ApiConfig.baseUrl}${ApiConfig.tableSetup}'),
-            headers: _authHeaders,
             body: jsonEncode({
               'tableId': tableId,
+              'name': name,
               'location': location,
               'guestCount': guestCount,
               'femaleCount': femaleCount,
@@ -101,13 +122,16 @@ class ApiService {
       // 서버 연결 실패 시 로컬에만 저장
       _currentTable = TableModel(
         id: tableId,
-        name: tableId,
+        name: name,
         status: TableStatus.occupied,
         guestCount: guestCount,
         location: location,
         isChatting: false,
       );
     }
+
+    // 테이블 정보 영속화
+    await _saveCurrentTable();
   }
 
   /// 채팅 요청
@@ -115,10 +139,9 @@ class ApiService {
     if (!isConnected) return false;
 
     try {
-      final response = await http
+      final response = await _client
           .post(
             Uri.parse('${ApiConfig.baseUrl}${ApiConfig.chatRequest}'),
-            headers: _authHeaders,
             body: jsonEncode({'targetTableId': targetTableId}),
           )
           .timeout(const Duration(seconds: 10));
@@ -130,8 +153,9 @@ class ApiService {
   }
 
   /// 테이블 초기화 (리셋)
-  void resetCurrentTable() {
+  Future<void> resetCurrentTable() async {
     _currentTable = null;
+    await _storage.delete(key: _currentTableKey);
   }
 
   /// 로그아웃
@@ -149,8 +173,6 @@ class ApiService {
   Future<bool> retryLogin() async {
     return await _authService.deviceLogin();
   }
-
-  Map<String, String> get _authHeaders => _authService.authHeaders;
 
   /// 더미 테이블 목록 (개발용)
   List<TableModel> _getDummyTables() {
