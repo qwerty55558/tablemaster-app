@@ -57,6 +57,9 @@ dependencies:
   # State management
   flutter_riverpod: ^2.6.1
 
+  # UUID generation for web device ID
+  uuid: ^4.5.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

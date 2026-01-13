@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:uuid/uuid.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
@@ -121,7 +122,7 @@ class AuthService {
     }
   }
 
-  /// Android ID 획득
+  /// 디바이스 ID 획득
   Future<String> _getDeviceId() async {
     // 저장된 ID가 있으면 사용
     final savedId = await _storage.read(key: _deviceIdKey);
@@ -131,14 +132,21 @@ class AuthService {
     final deviceInfo = DeviceInfoPlugin();
     String deviceId;
 
-    if (Platform.isAndroid) {
-      final androidInfo = await deviceInfo.androidInfo;
-      deviceId = androidInfo.id; // Android ID
-    } else if (Platform.isIOS) {
-      final iosInfo = await deviceInfo.iosInfo;
-      deviceId = iosInfo.identifierForVendor ?? 'unknown_ios';
+    if (kIsWeb) {
+      // 웹: UUID 생성하여 사용
+      final webInfo = await deviceInfo.webBrowserInfo;
+      // 브라우저 정보 기반 + UUID로 고유 ID 생성
+      deviceId = 'web_${const Uuid().v4()}';
     } else {
-      deviceId = 'unknown_platform';
+      // 네이티브 플랫폼
+      final info = await deviceInfo.deviceInfo;
+      if (info is AndroidDeviceInfo) {
+        deviceId = info.id;
+      } else if (info is IosDeviceInfo) {
+        deviceId = info.identifierForVendor ?? 'unknown_ios';
+      } else {
+        deviceId = 'unknown_${const Uuid().v4()}';
+      }
     }
 
     // 저장
@@ -195,9 +203,6 @@ class AuthService {
       return false;
     } on TimeoutException {
       _setStatus(AuthStatus.failed, '서버 연결 시간 초과');
-      return false;
-    } on SocketException {
-      _setStatus(AuthStatus.failed, '네트워크 연결 실패');
       return false;
     } catch (e) {
       _setStatus(AuthStatus.failed, '로그인 실패: $e');
@@ -261,9 +266,6 @@ class AuthService {
       return false;
     } on TimeoutException {
       _setStatus(AuthStatus.failed, '서버 연결 시간 초과');
-      return false;
-    } on SocketException {
-      _setStatus(AuthStatus.failed, '네트워크 연결 실패');
       return false;
     } catch (e) {
       _setStatus(AuthStatus.failed, '등록 요청 실패: $e');
@@ -364,9 +366,6 @@ class AuthService {
       }
     } on TimeoutException {
       _setStatus(AuthStatus.failed, '서버 연결 시간 초과');
-      return false;
-    } on SocketException {
-      _setStatus(AuthStatus.failed, '네트워크 연결 실패');
       return false;
     } catch (e) {
       _setStatus(AuthStatus.failed, '연결 확인 실패: $e');

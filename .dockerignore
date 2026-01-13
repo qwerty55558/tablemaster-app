@@ -1,0 +1,26 @@
+# Build outputs
+build/
+.dart_tool/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Platform-specific (not needed for web)
+android/
+ios/
+windows/
+macos/
+linux/
+
+# Git
+.git/
+.gitignore
+
+# Test
+test/
+
+# Misc
+*.md
+*.log
