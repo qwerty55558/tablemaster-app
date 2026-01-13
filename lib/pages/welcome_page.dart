@@ -1,22 +1,23 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
-import '../services/api_service.dart';
 import '../services/auth_service.dart';
+import '../providers/providers.dart';
 import '../widgets/connection_indicator.dart';
 import '../widgets/video_background.dart';
 import 'matching_page.dart';
 import 'setup_page.dart';
 
 /// 메인 환영 페이지 - 스크린세이버 역할
-class WelcomePage extends StatefulWidget {
+class WelcomePage extends ConsumerStatefulWidget {
   final AuthStatus authStatus;
 
   const WelcomePage({super.key, required this.authStatus});
 
   @override
-  State<WelcomePage> createState() => _WelcomePageState();
+  ConsumerState<WelcomePage> createState() => _WelcomePageState();
 }
 
-class _WelcomePageState extends State<WelcomePage>
+class _WelcomePageState extends ConsumerState<WelcomePage>
     with SingleTickerProviderStateMixin {
   // 미니멀 다크 파티클 영상 (Pexels 무료)
   static const String _videoUrl =
@@ -24,8 +25,6 @@ class _WelcomePageState extends State<WelcomePage>
 
   late AnimationController _swipeHintController;
   late Animation<double> _swipeHintAnimation;
-
-  bool _isRetrying = false;
 
   @override
   void initState() {
@@ -48,7 +47,7 @@ class _WelcomePageState extends State<WelcomePage>
   }
 
   void _navigateToNextPage() {
-    final currentTable = ApiService().currentTable;
+    final currentTable = ref.read(currentTableProvider);
 
     // 이미 테이블 설정이 되어있으면 MatchingPage로 이동
     final Widget destination = currentTable != null
@@ -78,14 +77,13 @@ class _WelcomePageState extends State<WelcomePage>
   }
 
   Future<void> _handleConnectionTap() async {
-    if (_isRetrying) return;
+    final isRetrying = ref.read(isRetryingProvider);
+    if (isRetrying) return;
 
-    final authService = ApiService().authService;
+    final authService = ref.read(authServiceProvider);
     final currentStatus = authService.status;
 
-    setState(() {
-      _isRetrying = true;
-    });
+    ref.read(isRetryingProvider.notifier).state = true;
 
     bool success = false;
 
@@ -114,17 +112,12 @@ class _WelcomePageState extends State<WelcomePage>
         break;
     }
 
-    if (mounted) {
-      setState(() {
-        _isRetrying = false;
-      });
-
-      _showStatusToast(success);
-    }
+    ref.read(isRetryingProvider.notifier).state = false;
+    _showStatusToast(success);
   }
 
   void _showStatusToast(bool success) {
-    final authService = ApiService().authService;
+    final authService = ref.read(authServiceProvider);
 
     if (success && authService.status == AuthStatus.authenticated) {
       showToast(
@@ -167,6 +160,8 @@ class _WelcomePageState extends State<WelcomePage>
 
   @override
   Widget build(BuildContext context) {
+    final isRetrying = ref.watch(isRetryingProvider);
+
     return Scaffold(
       child: GestureDetector(
         onVerticalDragEnd: (details) {
@@ -257,8 +252,8 @@ class _WelcomePageState extends State<WelcomePage>
                       // 연결 상태 인디케이터
                       GhostButton(
                         density: ButtonDensity.icon,
-                        onPressed: _isRetrying ? null : _handleConnectionTap,
-                        child: _isRetrying
+                        onPressed: isRetrying ? null : _handleConnectionTap,
+                        child: isRetrying
                             ? const SizedBox(
                                 width: 20,
                                 height: 20,

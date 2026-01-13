@@ -1,9 +1,10 @@
-import 'dart:async';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'services/api_service.dart';
 import 'services/auth_service.dart';
 import 'services/websocket_service.dart';
+import 'providers/providers.dart';
 import 'pages/welcome_page.dart';
 import 'theme/app_colors.dart';
 
@@ -15,25 +16,27 @@ void main() async {
   await dotenv.load(fileName: '.env');
   await ApiService().initialize();
 
-  runApp(const MyApp());
+  runApp(
+    const ProviderScope(
+      child: MyApp(),
+    ),
+  );
 }
 
-class MyApp extends StatefulWidget {
+class MyApp extends ConsumerStatefulWidget {
   const MyApp({super.key});
 
   @override
-  State<MyApp> createState() => _MyAppState();
+  ConsumerState<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends State<MyApp> {
-  StreamSubscription<AuthStatus>? _authSubscription;
+class _MyAppState extends ConsumerState<MyApp> {
   AuthStatus _previousStatus = AuthStatus.initializing;
 
   @override
   void initState() {
     super.initState();
     _previousStatus = ApiService().authService.status;
-    _authSubscription = ApiService().authService.statusStream.listen(_onAuthStatusChange);
 
     // 이미 인증된 상태면 WebSocket 연결
     if (_previousStatus == AuthStatus.authenticated) {
@@ -42,9 +45,24 @@ class _MyAppState extends State<MyApp> {
   }
 
   @override
-  void dispose() {
-    _authSubscription?.cancel();
-    super.dispose();
+  Widget build(BuildContext context) {
+    // 인증 상태 구독
+    ref.listen<AsyncValue<AuthStatus>>(authStatusProvider, (previous, next) {
+      next.whenData((status) {
+        _onAuthStatusChange(status);
+      });
+    });
+
+    final authStatus = ref.watch(currentAuthStatusProvider);
+
+    return ShadcnApp(
+      navigatorKey: navigatorKey,
+      title: 'TableMaster',
+      debugShowCheckedModeBanner: false,
+      themeMode: ThemeMode.dark,
+      theme: ThemeData(colorScheme: LegacyColorSchemes.darkZinc(), radius: 0.5),
+      home: WelcomePage(authStatus: authStatus),
+    );
   }
 
   void _onAuthStatusChange(AuthStatus status) {
@@ -90,25 +108,5 @@ class _MyAppState extends State<MyApp> {
 
     // 웰컴 페이지로 이동
     navigatorKey.currentState?.popUntil((route) => route.isFirst);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ShadcnApp(
-      navigatorKey: navigatorKey,
-      title: 'TableMaster',
-      debugShowCheckedModeBanner: false,
-      themeMode: ThemeMode.dark,
-      theme: ThemeData(colorScheme: LegacyColorSchemes.darkZinc(), radius: 0.5),
-      home: StreamBuilder<AuthStatus>(
-        stream: ApiService().authService.statusStream,
-        initialData: ApiService().authService.status,
-        builder: (context, snapshot) {
-          return WelcomePage(
-            authStatus: snapshot.data ?? AuthStatus.initializing,
-          );
-        },
-      ),
-    );
   }
 }

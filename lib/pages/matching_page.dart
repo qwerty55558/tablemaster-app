@@ -1,153 +1,114 @@
-import 'dart:async';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 import '../models/table_model.dart';
-import '../services/api_service.dart';
-import '../services/websocket_service.dart';
+import '../providers/providers.dart';
+import '../services/auth_service.dart';
 import '../theme/app_colors.dart';
 
 /// 매칭 페이지 - 사이드바 + 메인 콘텐츠 레이아웃
-class MatchingPage extends StatefulWidget {
+class MatchingPage extends ConsumerStatefulWidget {
   const MatchingPage({super.key});
 
   @override
-  State<MatchingPage> createState() => _MatchingPageState();
+  ConsumerState<MatchingPage> createState() => _MatchingPageState();
 }
 
-class _MatchingPageState extends State<MatchingPage> {
-  final ApiService _apiService = ApiService();
-  final WebSocketService _wsService = WebSocketService();
+class _MatchingPageState extends ConsumerState<MatchingPage> {
 
-  List<TableModel> _tables = [];
-  bool _isLoading = true;
-  TableModel? _selectedTable;
-  StreamSubscription<List<TableModel>>? _tableSubscription;
-  StreamSubscription<TableResetEvent>? _resetSubscription;
+  /// 테이블 삭제 이벤트 처리 - 메인으로 리다이렉트
+  void _handleTableDeleted(String tableId) {
+    // 1. Provider 상태 초기화
+    ref.read(currentTableProvider.notifier).clear();
 
-  @override
-  void initState() {
-    super.initState();
-    _initData();
-  }
+    // 2. 토스트 표시
+    showToast(
+      context: context,
+      builder: (context, overlay) => SurfaceCard(
+        child: Basic(
+          title: const Text('테이블 삭제'),
+          subtitle: const Text('관리자에 의해 테이블이 삭제되었습니다'),
+          leading: const Icon(Icons.warning_amber, color: AppColors.warning),
+        ),
+      ),
+    );
 
-  @override
-  void dispose() {
-    _tableSubscription?.cancel();
-    _resetSubscription?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _initData() async {
-    final tables = await _apiService.getTables();
-    setState(() {
-      _tables = tables;
-      _isLoading = false;
-    });
-
-    // WebSocket은 전역에서 관리 (main.dart)
-    // 스트림만 구독
-    _tableSubscription = _wsService.tableStream.listen((tables) {
-      setState(() {
-        _tables = tables;
-      });
-    });
-
-    _resetSubscription = _wsService.resetStream.listen((event) {
-      _handleTableReset(event);
-    });
-  }
-
-  Future<void> _handleTableReset(TableResetEvent event) async {
-    // 현재 테이블이 초기화되었으면 웰컴 페이지로 이동
-    final currentTable = _apiService.currentTable;
-    if (currentTable != null && currentTable.id == event.tableId) {
-      await _apiService.resetCurrentTable();
-
-      if (mounted) {
-        showToast(
-          context: context,
-          builder: (context, overlay) => SurfaceCard(
-            child: Basic(
-              title: const Text('테이블 초기화'),
-              subtitle: const Text('관리자에 의해 테이블이 초기화되었습니다'),
-              leading: const Icon(Icons.info_outline, color: AppColors.info),
-            ),
-          ),
-        );
-
-        // 웰컴 페이지로 이동
-        Navigator.of(context).popUntil((route) => route.isFirst);
-      }
-    }
+    // 3. 메인 페이지로 이동
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   void _onTableTap(TableModel table) {
-    setState(() {
-      _selectedTable = table;
-    });
+    ref.read(selectedTableProvider.notifier).state = table;
   }
 
   Future<void> _requestChat(TableModel table) async {
-    final success = await _apiService.requestChat(table.id);
+    final apiService = ref.read(apiServiceProvider);
+    final success = await apiService.requestChat(table.id);
 
-    if (mounted) {
-      if (success) {
-        showToast(
-          context: context,
-          builder: (context, overlay) => SurfaceCard(
-            child: Basic(
-              title: const Text('채팅 요청 완료'),
-              subtitle: Text('${table.name} 테이블에 요청을 보냈습니다'),
-              leading: const Icon(Icons.check_circle, color: AppColors.success),
-            ),
+    if (success) {
+      showToast(
+        context: context,
+        builder: (context, overlay) => SurfaceCard(
+          child: Basic(
+            title: const Text('채팅 요청 완료'),
+            subtitle: Text('${table.name} 테이블에 요청을 보냈습니다'),
+            leading: const Icon(Icons.check_circle, color: AppColors.success),
           ),
-        );
-      } else {
-        showToast(
-          context: context,
-          builder: (context, overlay) => SurfaceCard(
-            child: Basic(
-              title: const Text('요청 실패'),
-              subtitle: const Text('다시 시도해주세요'),
-              leading: const Icon(Icons.error, color: AppColors.error),
-            ),
+        ),
+      );
+    } else {
+      showToast(
+        context: context,
+        builder: (context, overlay) => SurfaceCard(
+          child: Basic(
+            title: const Text('요청 실패'),
+            subtitle: const Text('다시 시도해주세요'),
+            leading: const Icon(Icons.error, color: AppColors.error),
           ),
-        );
-      }
+        ),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final currentTable = _apiService.currentTable;
-    final otherTables = _tables.where((t) => t.id != currentTable?.id).toList();
+    // 테이블 삭제 이벤트 구독 (ref.listen으로 side effect 처리)
+    ref.listen<AsyncValue<String>>(tableDeletedProvider, (previous, next) {
+      next.whenData((tableId) => _handleTableDeleted(tableId));
+    });
+
+    // 테이블 목록 (HTTP fallback + WebSocket 실시간)
+    final tables = ref.watch(tablesProvider);
+    final currentTable = ref.watch(currentTableProvider);
+    final otherTables = tables.where((t) => t.id != currentTable?.id).toList();
+    final selectedTable = ref.watch(selectedTableProvider);
+    final isConnected = ref.watch(currentAuthStatusProvider) == AuthStatus.authenticated;
 
     return Scaffold(
       child: Container(
         color: AppColors.background,
         child: SafeArea(
-          child: _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : Row(
+          child: Row(
                   children: [
                     // 좌측 사이드바 - 테이블 목록
                     _TableSidebar(
                       currentTable: currentTable,
                       tables: otherTables,
-                      selectedTable: _selectedTable,
+                      selectedTable: selectedTable,
                       onTableTap: _onTableTap,
                       onBack: () => Navigator.pop(context),
-                      isConnected: _apiService.isConnected,
+                      isConnected: isConnected,
                     ),
 
                     // 우측 메인 콘텐츠
                     Expanded(
                       child: _MainContent(
-                        selectedTable: _selectedTable,
+                        selectedTable: selectedTable,
                         currentTable: currentTable,
-                        onChatRequest: _selectedTable != null
-                            ? () => _requestChat(_selectedTable!)
+                        onChatRequest: selectedTable != null
+                            ? () => _requestChat(selectedTable)
                             : null,
-                        onClose: () => setState(() => _selectedTable = null),
+                        onClose: () =>
+                            ref.read(selectedTableProvider.notifier).state = null,
                       ),
                     ),
                   ],

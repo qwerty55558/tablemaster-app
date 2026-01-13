@@ -38,22 +38,16 @@ class ApiService {
   /// 초기화 - AuthService 초기화 및 디바이스 상태 확인
   Future<bool> initialize() async {
     await _authService.initialize();
-    await _loadCurrentTable();
 
     // HTTP API로 디바이스 상태 확인 후 로그인
-    return await _authService.verifyConnection();
-  }
+    final connected = await _authService.verifyConnection();
 
-  /// 저장된 테이블 정보 로드
-  Future<void> _loadCurrentTable() async {
-    try {
-      final json = await _storage.read(key: _currentTableKey);
-      if (json != null) {
-        _currentTable = TableModel.fromJson(jsonDecode(json) as Map<String, dynamic>);
-      }
-    } catch (e) {
-      // 로드 실패 시 무시
+    // 인증 성공 시 서버에서 내 테이블 복원
+    if (connected) {
+      await getMyTable();
     }
+
+    return connected;
   }
 
   /// 현재 테이블 정보 저장
@@ -79,59 +73,65 @@ class ApiService {
             .map((json) => TableModel.fromJson(json as Map<String, dynamic>))
             .toList();
       }
-      return _getDummyTables();
+      return [];
     } catch (e) {
-      // 서버 연결 실패 - 더미 데이터 반환
-      return _getDummyTables();
+      // 서버 연결 실패 - 빈 목록 반환
+      return [];
+    }
+  }
+
+  /// 내 테이블 조회 (디바이스에 연결된 테이블)
+  /// - 테이블 있으면 → 저장 후 반환
+  /// - 테이블 없으면 → 로컬 스토리지 비우고 null 반환
+  Future<TableModel?> getMyTable() async {
+    try {
+      final response = await _client
+          .get(Uri.parse('${ApiConfig.baseUrl}${ApiConfig.myTable}'))
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data != null && data is Map<String, dynamic> && data.isNotEmpty) {
+          _currentTable = TableModel.fromJson(data);
+          await _saveCurrentTable();
+          return _currentTable;
+        }
+      }
+      // 테이블 없음 → 로컬 데이터 정리
+      await resetCurrentTable();
+      return null;
+    } catch (e) {
+      return null;
     }
   }
 
   /// 테이블 설정 (입장 시)
   Future<void> setupTable({
-    required String name,
+    required String tableId,
     required String location,
     required int guestCount,
     required int femaleCount,
     required int maleCount,
   }) async {
-    // 테이블 ID = 디바이스 ID (PK)
-    final tableId = deviceId ?? 'T${DateTime.now().millisecondsSinceEpoch}';
+    final response = await _client
+        .post(
+          Uri.parse('${ApiConfig.baseUrl}${ApiConfig.tableSetup}'),
+          body: jsonEncode({
+            'tableId': tableId,
+            'location': location,
+            'guestCount': guestCount,
+            'femaleCount': femaleCount,
+            'maleCount': maleCount,
+          }),
+        )
+        .timeout(const Duration(seconds: 10));
 
-    try {
-      final response = await _client
-          .post(
-            Uri.parse('${ApiConfig.baseUrl}${ApiConfig.tableSetup}'),
-            body: jsonEncode({
-              'tableId': tableId,
-              'name': name,
-              'location': location,
-              'guestCount': guestCount,
-              'femaleCount': femaleCount,
-              'maleCount': maleCount,
-            }),
-          )
-          .timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
-        _currentTable = TableModel.fromJson(data);
-      } else {
-        throw Exception('테이블 설정 실패: ${response.statusCode}');
-      }
-    } catch (e) {
-      // 서버 연결 실패 시 로컬에만 저장
-      _currentTable = TableModel(
-        id: tableId,
-        name: name,
-        status: TableStatus.occupied,
-        guestCount: guestCount,
-        location: location,
-        isChatting: false,
-      );
+    if (response.statusCode == 200) {
+      // 설정 성공 후 실제 테이블 정보 조회
+      await getMyTable();
+    } else {
+      throw Exception('테이블 설정 실패: ${response.statusCode}');
     }
-
-    // 테이블 정보 영속화
-    await _saveCurrentTable();
   }
 
   /// 채팅 요청
@@ -172,70 +172,5 @@ class ApiService {
   /// 디바이스 재로그인
   Future<bool> retryLogin() async {
     return await _authService.deviceLogin();
-  }
-
-  /// 더미 테이블 목록 (개발용)
-  List<TableModel> _getDummyTables() {
-    return [
-      const TableModel(
-        id: 'A1',
-        name: 'A1',
-        status: TableStatus.occupied,
-        guestCount: 4,
-        location: '서울',
-        isChatting: false,
-      ),
-      const TableModel(
-        id: 'A2',
-        name: 'A2',
-        status: TableStatus.occupied,
-        guestCount: 3,
-        location: '부산',
-        isChatting: true,
-      ),
-      const TableModel(id: 'A3', name: 'A3', status: TableStatus.available),
-      const TableModel(
-        id: 'B1',
-        name: 'B1',
-        status: TableStatus.occupied,
-        guestCount: 6,
-        location: '서울',
-        isChatting: false,
-      ),
-      const TableModel(
-        id: 'B2',
-        name: 'B2',
-        status: TableStatus.occupied,
-        guestCount: 2,
-        location: '인천',
-        isChatting: false,
-      ),
-      const TableModel(id: 'B3', name: 'B3', status: TableStatus.available),
-      const TableModel(
-        id: 'C1',
-        name: 'C1',
-        status: TableStatus.occupied,
-        guestCount: 5,
-        location: '대구',
-        isChatting: true,
-      ),
-      const TableModel(id: 'C2', name: 'C2', status: TableStatus.reserved),
-      const TableModel(
-        id: 'D1',
-        name: 'D1',
-        status: TableStatus.occupied,
-        guestCount: 2,
-        location: '광주',
-        isChatting: false,
-      ),
-      const TableModel(
-        id: 'D2',
-        name: 'D2',
-        status: TableStatus.occupied,
-        guestCount: 4,
-        location: '대전',
-        isChatting: false,
-      ),
-    ];
   }
 }

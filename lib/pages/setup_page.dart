@@ -1,217 +1,55 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 import '../theme/app_colors.dart';
-import '../services/api_service.dart';
+import '../providers/providers.dart';
 import 'matching_page.dart';
 
 /// 테이블 설정 페이지 - 스텝업 방식
-class SetupPage extends StatefulWidget {
+class SetupPage extends ConsumerWidget {
   const SetupPage({super.key});
 
-  @override
-  State<SetupPage> createState() => _SetupPageState();
-}
-
-class _SetupPageState extends State<SetupPage> {
-  int _currentStep = 0;
-  bool _isLoading = false;
-
-  // Step 0: 테이블 이름
-  final TextEditingController _tableNameController = TextEditingController();
-
-  // Step 1: 지역
-  String? _selectedLocation;
-  final List<String> _locations = ['서울', '부산', '인천', '대구', '광주', '대전', '울산', '경기'];
-
-  // Step 2: 인원
-  int _guestCount = 4;
+  static const List<String> _locations = ['서울', '부산', '인천', '대구', '광주', '대전', '울산', '경기'];
   static const int _minGuests = 2;
   static const int _maxGuests = 12;
 
-  // Step 3: 성비
-  late int _femaleCount;
-  late int _maleCount;
-
   @override
-  void initState() {
-    super.initState();
-    _initGenderRatio();
-  }
+  Widget build(BuildContext context, WidgetRef ref) {
+    final formState = ref.watch(setupFormProvider);
+    final formNotifier = ref.read(setupFormProvider.notifier);
 
-  @override
-  void dispose() {
-    _tableNameController.dispose();
-    super.dispose();
-  }
-
-  void _initGenderRatio() {
-    _femaleCount = _guestCount ~/ 2;
-    _maleCount = _guestCount - _femaleCount;
-  }
-
-  void _updateGenderRatio() {
-    // 총 인원이 변경되면 성비 재조정
-    if (_femaleCount + _maleCount != _guestCount) {
-      _femaleCount = _guestCount ~/ 2;
-      _maleCount = _guestCount - _femaleCount;
-    }
-  }
-
-  void _incrementFemale() {
-    if (_femaleCount < _guestCount) {
-      setState(() {
-        _femaleCount++;
-        _maleCount--;
-      });
-    }
-  }
-
-  void _decrementFemale() {
-    if (_femaleCount > 0) {
-      setState(() {
-        _femaleCount--;
-        _maleCount++;
-      });
-    }
-  }
-
-  void _incrementMale() {
-    if (_maleCount < _guestCount) {
-      setState(() {
-        _maleCount++;
-        _femaleCount--;
-      });
-    }
-  }
-
-  void _decrementMale() {
-    if (_maleCount > 0) {
-      setState(() {
-        _maleCount--;
-        _femaleCount++;
-      });
-    }
-  }
-
-  bool _canProceed() {
-    switch (_currentStep) {
-      case 0:
-        return _tableNameController.text.trim().isNotEmpty;
-      case 1:
-        return _selectedLocation != null;
-      case 2:
-        return _guestCount >= _minGuests;
-      case 3:
-        return _femaleCount + _maleCount == _guestCount;
-      default:
-        return false;
-    }
-  }
-
-  void _nextStep() {
-    if (_currentStep < 3) {
-      setState(() {
-        _currentStep++;
-        if (_currentStep == 3) {
-          _updateGenderRatio();
-        }
-      });
-    } else {
-      _submitSetup();
-    }
-  }
-
-  void _previousStep() {
-    if (_currentStep > 0) {
-      setState(() {
-        _currentStep--;
-      });
-    }
-  }
-
-  Future<void> _submitSetup() async {
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      await ApiService().setupTable(
-        name: _tableNameController.text.trim(),
-        location: _selectedLocation!,
-        guestCount: _guestCount,
-        femaleCount: _femaleCount,
-        maleCount: _maleCount,
-      );
-
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) =>
-                const MatchingPage(),
-            transitionsBuilder: (context, animation, secondaryAnimation, child) {
-              return FadeTransition(opacity: animation, child: child);
-            },
-            transitionDuration: const Duration(milliseconds: 300),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        showToast(
-          context: context,
-          builder: (context, overlay) => SurfaceCard(
-            child: Basic(
-              title: const Text('설정 실패'),
-              subtitle: Text(e.toString()),
-              leading: const Icon(Icons.error_outline, color: AppColors.error),
-            ),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
       child: SafeArea(
         child: Column(
           children: [
             // 헤더
-            _buildHeader(),
+            _buildHeader(formState.currentStep),
 
             // 프로그레스 인디케이터
-            _buildProgressIndicator(),
+            _buildProgressIndicator(formState.currentStep),
 
             // 메인 콘텐츠
             Expanded(
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 300),
-                child: _buildStepContent(),
+                child: _buildStepContent(context, ref, formState, formNotifier),
               ),
             ),
 
             // 하단 버튼
-            _buildBottomButtons(),
+            _buildBottomButtons(context, ref, formState, formNotifier),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(int currentStep) {
     return Container(
       padding: const EdgeInsets.all(16),
       child: Center(
         child: Text(
-          _getStepTitle(),
+          _getStepTitle(currentStep),
           style: const TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.bold,
@@ -223,8 +61,8 @@ class _SetupPageState extends State<SetupPage> {
     );
   }
 
-  String _getStepTitle() {
-    switch (_currentStep) {
+  String _getStepTitle(int step) {
+    switch (step) {
       case 0:
         return '테이블 이름';
       case 1:
@@ -238,71 +76,212 @@ class _SetupPageState extends State<SetupPage> {
     }
   }
 
-  Widget _buildProgressIndicator() {
+  Widget _buildProgressIndicator(int currentStep) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
       child: Row(
-        children: List.generate(4, (index) {
-          final isActive = index <= _currentStep;
-          final isCompleted = index < _currentStep;
-          return Expanded(
-            child: Row(
-              children: [
-                Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: isActive ? AppColors.primary : AppColors.border,
-                  ),
-                  child: Center(
-                    child: isCompleted
-                        ? const Icon(Icons.check, size: 18, color: AppColors.primaryForeground)
-                        : Text(
-                            '${index + 1}',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: isActive
-                                  ? AppColors.primaryForeground
-                                  : AppColors.foregroundMuted,
-                            ),
-                          ),
-                  ),
-                ),
-                if (index < 3)
-                  Expanded(
-                    child: Container(
-                      height: 2,
-                      color: index < _currentStep
-                          ? AppColors.primary
-                          : AppColors.border,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: List.generate(7, (index) {
+          // 짝수 인덱스 = 원 (0, 2, 4, 6 → step 1, 2, 3, 4)
+          // 홀수 인덱스 = 선 (1, 3, 5)
+          if (index.isEven) {
+            final stepIndex = index ~/ 2;
+            final isActive = stepIndex <= currentStep;
+            final isCompleted = stepIndex < currentStep;
+            return Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: isActive ? AppColors.primary : AppColors.border,
+              ),
+              alignment: Alignment.center,
+              child: isCompleted
+                  ? const Icon(Icons.check, size: 18, color: AppColors.primaryForeground)
+                  : Text(
+                      '${stepIndex + 1}',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: isActive
+                            ? AppColors.primaryForeground
+                            : AppColors.foregroundMuted,
+                      ),
                     ),
-                  ),
-              ],
-            ),
-          );
+            );
+          } else {
+            final lineIndex = index ~/ 2;
+            return Expanded(
+              child: Container(
+                height: 2,
+                margin: const EdgeInsets.symmetric(horizontal: 8),
+                color: lineIndex < currentStep
+                    ? AppColors.primary
+                    : AppColors.border,
+              ),
+            );
+          }
         }),
       ),
     );
   }
 
-  Widget _buildStepContent() {
-    switch (_currentStep) {
+  Widget _buildStepContent(
+    BuildContext context,
+    WidgetRef ref,
+    SetupFormState formState,
+    SetupFormNotifier formNotifier,
+  ) {
+    switch (formState.currentStep) {
       case 0:
-        return _buildTableNameStep();
+        return _TableNameStep(
+          tableName: formState.tableName,
+          onChanged: formNotifier.setTableName,
+        );
       case 1:
-        return _buildLocationStep();
+        return _LocationStep(
+          locations: _locations,
+          selectedLocation: formState.selectedLocation,
+          onSelected: formNotifier.setLocation,
+        );
       case 2:
-        return _buildGuestCountStep();
+        return _GuestCountStep(
+          guestCount: formState.guestCount,
+          minGuests: _minGuests,
+          maxGuests: _maxGuests,
+          onChanged: formNotifier.setGuestCount,
+        );
       case 3:
-        return _buildGenderRatioStep();
+        return _GenderRatioStep(
+          guestCount: formState.guestCount,
+          femaleCount: formState.femaleCount,
+          maleCount: formState.maleCount,
+          onIncrementFemale: formNotifier.incrementFemale,
+          onDecrementFemale: formNotifier.decrementFemale,
+          onIncrementMale: formNotifier.incrementMale,
+          onDecrementMale: formNotifier.decrementMale,
+        );
       default:
         return const SizedBox();
     }
   }
 
-  Widget _buildTableNameStep() {
+  Widget _buildBottomButtons(
+    BuildContext context,
+    WidgetRef ref,
+    SetupFormState formState,
+    SetupFormNotifier formNotifier,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: const BoxDecoration(
+        border: Border(
+          top: BorderSide(color: AppColors.border, width: 1),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: GhostButton(
+              onPressed: formState.currentStep == 0
+                  ? () => Navigator.pop(context)
+                  : formNotifier.previousStep,
+              child: Text(formState.currentStep == 0 ? '메인으로 가기' : '이전'),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: PrimaryButton(
+              onPressed: formState.canProceed() && !formState.isLoading
+                  ? () => _handleNext(context, ref, formState, formNotifier)
+                  : null,
+              child: formState.isLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppColors.primaryForeground,
+                      ),
+                    )
+                  : Text(formState.currentStep < 3 ? '다음' : '완료'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleNext(
+    BuildContext context,
+    WidgetRef ref,
+    SetupFormState formState,
+    SetupFormNotifier formNotifier,
+  ) async {
+    if (formState.currentStep < 3) {
+      formNotifier.nextStep();
+    } else {
+      final success = await formNotifier.submit();
+      if (success && context.mounted) {
+        Navigator.pushReplacement(
+          context,
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                const MatchingPage(),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              return FadeTransition(opacity: animation, child: child);
+            },
+            transitionDuration: const Duration(milliseconds: 300),
+          ),
+        );
+      } else if (context.mounted) {
+        showToast(
+          context: context,
+          builder: (context, overlay) => SurfaceCard(
+            child: Basic(
+              title: const Text('설정 실패'),
+              subtitle: const Text('다시 시도해주세요'),
+              leading: const Icon(Icons.error_outline, color: AppColors.error),
+            ),
+          ),
+        );
+      }
+    }
+  }
+}
+
+/// Step 0: 테이블 이름 입력
+class _TableNameStep extends StatefulWidget {
+  final String tableName;
+  final void Function(String) onChanged;
+
+  const _TableNameStep({
+    required this.tableName,
+    required this.onChanged,
+  });
+
+  @override
+  State<_TableNameStep> createState() => _TableNameStepState();
+}
+
+class _TableNameStepState extends State<_TableNameStep> {
+  late TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.tableName);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Center(
       key: const ValueKey('tableName'),
       child: Padding(
@@ -333,9 +312,9 @@ class _SetupPageState extends State<SetupPage> {
             SizedBox(
               width: 280,
               child: TextField(
-                controller: _tableNameController,
+                controller: _controller,
                 placeholder: const Text('예: 우리팀, 친구들, A1'),
-                onChanged: (_) => setState(() {}),
+                onChanged: widget.onChanged,
                 style: const TextStyle(fontSize: 18),
               ),
             ),
@@ -344,8 +323,22 @@ class _SetupPageState extends State<SetupPage> {
       ),
     );
   }
+}
 
-  Widget _buildLocationStep() {
+/// Step 1: 지역 선택
+class _LocationStep extends StatelessWidget {
+  final List<String> locations;
+  final String? selectedLocation;
+  final void Function(String) onSelected;
+
+  const _LocationStep({
+    required this.locations,
+    required this.selectedLocation,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Center(
       key: const ValueKey('location'),
       child: Padding(
@@ -377,14 +370,10 @@ class _SetupPageState extends State<SetupPage> {
               alignment: WrapAlignment.center,
               spacing: 12,
               runSpacing: 12,
-              children: _locations.map((location) {
-                final isSelected = _selectedLocation == location;
+              children: locations.map((location) {
+                final isSelected = selectedLocation == location;
                 return GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _selectedLocation = location;
-                    });
-                  },
+                  onTap: () => onSelected(location),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                     decoration: BoxDecoration(
@@ -413,8 +402,24 @@ class _SetupPageState extends State<SetupPage> {
       ),
     );
   }
+}
 
-  Widget _buildGuestCountStep() {
+/// Step 2: 인원 선택
+class _GuestCountStep extends StatelessWidget {
+  final int guestCount;
+  final int minGuests;
+  final int maxGuests;
+  final void Function(int) onChanged;
+
+  const _GuestCountStep({
+    required this.guestCount,
+    required this.minGuests,
+    required this.maxGuests,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Center(
       key: const ValueKey('guestCount'),
       child: Padding(
@@ -447,18 +452,13 @@ class _SetupPageState extends State<SetupPage> {
               children: [
                 _CounterButton(
                   icon: Icons.remove,
-                  onPressed: _guestCount > _minGuests
-                      ? () {
-                          setState(() {
-                            _guestCount--;
-                            _updateGenderRatio();
-                          });
-                        }
+                  onPressed: guestCount > minGuests
+                      ? () => onChanged(guestCount - 1)
                       : null,
                 ),
                 const SizedBox(width: 32),
                 Text(
-                  '$_guestCount',
+                  '$guestCount',
                   style: const TextStyle(
                     fontSize: 72,
                     fontWeight: FontWeight.bold,
@@ -468,13 +468,8 @@ class _SetupPageState extends State<SetupPage> {
                 const SizedBox(width: 32),
                 _CounterButton(
                   icon: Icons.add,
-                  onPressed: _guestCount < _maxGuests
-                      ? () {
-                          setState(() {
-                            _guestCount++;
-                            _updateGenderRatio();
-                          });
-                        }
+                  onPressed: guestCount < maxGuests
+                      ? () => onChanged(guestCount + 1)
                       : null,
                 ),
               ],
@@ -492,8 +487,30 @@ class _SetupPageState extends State<SetupPage> {
       ),
     );
   }
+}
 
-  Widget _buildGenderRatioStep() {
+/// Step 3: 성비 선택
+class _GenderRatioStep extends StatelessWidget {
+  final int guestCount;
+  final int femaleCount;
+  final int maleCount;
+  final VoidCallback onIncrementFemale;
+  final VoidCallback onDecrementFemale;
+  final VoidCallback onIncrementMale;
+  final VoidCallback onDecrementMale;
+
+  const _GenderRatioStep({
+    required this.guestCount,
+    required this.femaleCount,
+    required this.maleCount,
+    required this.onIncrementFemale,
+    required this.onDecrementFemale,
+    required this.onIncrementMale,
+    required this.onDecrementMale,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Center(
       key: const ValueKey('genderRatio'),
       child: Padding(
@@ -513,7 +530,7 @@ class _SetupPageState extends State<SetupPage> {
             ),
             const SizedBox(height: 8),
             Text(
-              '총 $_guestCount명의 성비를 조절해주세요',
+              '총 $guestCount명의 성비를 조절해주세요',
               style: const TextStyle(
                 fontSize: 16,
                 color: AppColors.foregroundMuted,
@@ -527,12 +544,12 @@ class _SetupPageState extends State<SetupPage> {
                 Expanded(
                   child: _GenderCard(
                     label: '여성',
-                    count: _femaleCount,
+                    count: femaleCount,
                     color: const Color(0xFFEC4899),
-                    onIncrement: _incrementFemale,
-                    onDecrement: _decrementFemale,
-                    canIncrement: _maleCount > 0,
-                    canDecrement: _femaleCount > 0,
+                    onIncrement: onIncrementFemale,
+                    onDecrement: onDecrementFemale,
+                    canIncrement: maleCount > 0,
+                    canDecrement: femaleCount > 0,
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -540,55 +557,18 @@ class _SetupPageState extends State<SetupPage> {
                 Expanded(
                   child: _GenderCard(
                     label: '남성',
-                    count: _maleCount,
+                    count: maleCount,
                     color: const Color(0xFF3B82F6),
-                    onIncrement: _incrementMale,
-                    onDecrement: _decrementMale,
-                    canIncrement: _femaleCount > 0,
-                    canDecrement: _maleCount > 0,
+                    onIncrement: onIncrementMale,
+                    onDecrement: onDecrementMale,
+                    canIncrement: femaleCount > 0,
+                    canDecrement: maleCount > 0,
                   ),
-              ),
-            ],
-          ),
-        ],
-      ),
-      ),
-    );
-  }
-
-  Widget _buildBottomButtons() {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: const BoxDecoration(
-        border: Border(
-          top: BorderSide(color: AppColors.border, width: 1),
+                ),
+              ],
+            ),
+          ],
         ),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: GhostButton(
-              onPressed: _currentStep == 0 ? () => Navigator.pop(context) : _previousStep,
-              child: Text(_currentStep == 0 ? '메인으로 가기' : '이전'),
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: PrimaryButton(
-              onPressed: _canProceed() && !_isLoading ? _nextStep : null,
-              child: _isLoading
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: AppColors.primaryForeground,
-                      ),
-                    )
-                  : Text(_currentStep < 3 ? '다음' : '완료'),
-            ),
-          ),
-        ],
       ),
     );
   }
