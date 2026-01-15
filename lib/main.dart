@@ -13,7 +13,10 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await dotenv.load(fileName: '.env');
+  const bool isProd = bool.fromEnvironment('IS_PROD', defaultValue: false);
+  final envFile = isProd ? '.env.production' : '.env.development';
+  await dotenv.load(fileName: envFile);
+
   await ApiService().initialize();
 
   runApp(

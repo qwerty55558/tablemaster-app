@@ -7,9 +7,26 @@ class ApiConfig {
   static String get _wsHost => dotenv.env['WS_HOST'] ?? _apiHost;
   static String get _wsPort => dotenv.env['WS_PORT'] ?? _apiPort;
 
-  static String get baseUrl => 'http://$_apiHost:$_apiPort/api/v1';
-  static String get wsUrl => 'ws://$_wsHost:$_wsPort/ws';
-  static String get wsBaseUrl => 'http://$_wsHost:$_wsPort/ws';  // STOMP + SockJS용
+  static bool get _useHttps => dotenv.env['USE_HTTPS'] == 'true';
+
+  static String get baseUrl {
+    final protocol = _useHttps ? 'https' : 'http';
+    final portPart = (_apiPort == '80' || _apiPort == '443' || _apiPort == '') ? '' : ':$_apiPort';
+    return '$protocol://$_apiHost$portPart/api/v1';
+  }
+
+  static String get wsUrl {
+    final protocol = _useHttps ? 'wss' : 'ws';
+    final portPart = (_wsPort == '80' || _wsPort == '443' || _wsPort == '') ? '' : ':$_wsPort';
+    return '$protocol://$_wsHost$portPart/ws';
+  }
+
+  static String get wsBaseUrl {
+    final protocol = _useHttps ? 'https' : 'http';
+    final portPart = (_wsPort == '80' || _wsPort == '443' || _wsPort == '') ? '' : ':$_wsPort';
+    return '$protocol://$_wsHost$portPart/ws';
+  }
+
 
   // App Secret (디바이스 인증용)
   static String get appSecret => dotenv.env['APP_SECRET'] ?? '';
