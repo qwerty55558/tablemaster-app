@@ -1,0 +1,45 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.iml
+
+# Build outputs
+build/
+.dart_tool/
+
+# Dependencies (will be fetched fresh)
+.packages
+.pub-cache/
+.pub/
+
+# Flutter
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Environment (production is needed for build)
+.env
+.env.development
+
+# Misc
+*.md
+*.log
+.DS_Store
+.claude/
+.mcp.json
+opencode.json
+swagger-config.json
+summary.md
+
+# Test
+test/
+
+# Platform specific (not needed for web)
+android/
+ios/
+macos/
+windows/
+linux/

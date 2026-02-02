@@ -52,9 +52,3 @@ swagger-config.json
 .env.development
 .env.production
 
-# Deployment
-Dockerfile
-docker-compose.yml
-docker-compose.yaml
-.dockerignore
-nginx.conf
