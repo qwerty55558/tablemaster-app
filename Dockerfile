@@ -18,21 +18,7 @@ RUN flutter build web --release --dart-define-from-file=.env.production
 # 프로덕션 이미지
 FROM --platform=linux/amd64 nginx:alpine
 
-# nginx 설정
 COPY --from=builder /app/build/web /usr/share/nginx/html
-
-# SPA를 위한 nginx 설정
-RUN echo 'server { \
-    listen 80; \
-    server_name localhost; \
-    root /usr/share/nginx/html; \
-    index index.html; \
-    location / { \
-        try_files $uri $uri/ /index.html; \
-    } \
-    gzip on; \
-    gzip_types text/plain text/css application/json application/javascript text/xml application/xml text/javascript; \
-}' > /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 
