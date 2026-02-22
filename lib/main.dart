@@ -17,8 +17,6 @@ void main() async {
   final envFile = isProd ? '.env.production' : '.env.development';
   await dotenv.load(fileName: envFile);
 
-  await ApiService().initialize();
-
   runApp(
     const ProviderScope(
       child: MyApp(),
@@ -41,10 +39,12 @@ class _MyAppState extends ConsumerState<MyApp> {
     super.initState();
     _previousStatus = ApiService().authService.status;
 
-    // 이미 인증된 상태면 WebSocket 연결
-    if (_previousStatus == AuthStatus.authenticated) {
-      WebSocketService().connect();
-    }
+    // 백그라운드에서 초기화 (UI 블로킹 없음)
+    ApiService().initialize().then((_) {
+      if (ApiService().authService.status == AuthStatus.authenticated) {
+        WebSocketService().connect();
+      }
+    });
   }
 
   @override
@@ -71,10 +71,14 @@ class _MyAppState extends ConsumerState<MyApp> {
   void _onAuthStatusChange(AuthStatus status) {
     print('[AUTH] 상태 변경: $_previousStatus → $status');
 
-    // 인증 성공 → WebSocket 연결
+    // 인증 성공 → WebSocket 연결 + 초기화 데이터 갱신
     if (status == AuthStatus.authenticated) {
       print('[AUTH] WebSocket 연결 시도');
-      WebSocketService().connect();
+      WebSocketService().connect().then((_) async {
+        // WS 연결 후 내 테이블 정보 재조회: 있으면 연동, 없으면 storage + provider 초기화
+        final table = await ApiService().getMyTable();
+        ref.read(currentTableProvider.notifier).update(table);
+      });
     }
 
     // 인증됨 → 미등록/실패로 변경된 경우 처리
