@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(test:*)",
+      "Bash(flutter create:*)",
+      "Bash(flutter build:*)",
+      "Bash(flutter pub get:*)",
+      "Bash(docker buildx build:*)",
+      "Bash(docker push:*)",
+      "Bash(git pull:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: GitHub Actions workflow 추가 및 도메인 변경\n\n- app.clauminirockpt.me로 도메인 변경\n- x86 \\(linux/amd64\\) 플랫폼용 Docker 빌드 workflow 추가\n- GHCR에 이미지 자동 푸시 설정\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push:*)",
+      "WebFetch(domain:videos.pexels.com)",
+      "Bash(curl:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(wc:*)"
+    ]
+  },
+  "disabledMcpjsonServers": [
+    "crawl4ai",
+    "db-server",
+    "swagger"
+  ]
+}

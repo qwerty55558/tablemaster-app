@@ -465,8 +465,11 @@ class AuthService {
 
   /// 디바이스 삭제 처리 (서버에서 DEVICE_DELETED 수신 시)
   Future<void> handleDeviceDeleted() async {
+    print('[AUTH] 디바이스 삭제 감지 → 토큰 초기화 후 재등록 요청');
     await _clearTokens();
     _setStatus(AuthStatus.unregistered, '디바이스가 삭제되었습니다');
+    // 자동 재등록 요청 → pending 상태로 전환 후 관리자 승인 polling 시작
+    await requestDeviceRegistration();
   }
 
   /// 토큰 저장

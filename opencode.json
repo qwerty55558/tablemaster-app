@@ -12,27 +12,19 @@
     }
   },
   "mcp": {
-    "figma_dev": {
-      "type": "remote",
-      "url": "http://127.0.0.1:3845/sse",
-      "enabled": true
-    },
-    "firecrawl_dev": {
+    "crawl4ai": {
       "type": "local",
-      "command": ["npx", "-y", "firecrawl-mcp"],
       "enabled": true,
+      "command": ["cmd","/c", "npx", "-y", "mcp-crawl4ai-ts"],
       "environment": {
-        "FIRECRAWL_API_KEY": "***REMOVED***"
+        "CRAWL4AI_BASE_URL": "http://127.0.0.1:11235"
       }
     },
     "db-server_dev": {
       "type": "local",
       "command": [
         "npx",
-        "-y",
-        "@bytebase/dbhub",
-        "--dsn",
-        "postgresql://postgres:postgres@localhost:5432/postgres"
+        "-y", "@modelcontextprotocol/server-postgres", "postgresql://postgres:postgres@localhost:5432/postgres"
       ],
       "enabled": true,
       "timeout": 10000
@@ -43,7 +35,7 @@
         "npx",
         "-y",
         "swagger-mcp-server",
-        "/Users/personal-ai/Projects/personal/tableProject/be/swagger-config.json"
+        "./swagger-config.json"
       ],
       "enabled": true,
       "timeout": 30000

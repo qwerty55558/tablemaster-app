@@ -19,9 +19,7 @@ class WelcomePage extends ConsumerStatefulWidget {
 
 class _WelcomePageState extends ConsumerState<WelcomePage>
     with SingleTickerProviderStateMixin {
-  // 미니멀 다크 파티클 영상 (Pexels 무료)
-  static const String _videoUrl =
-      'https://videos.pexels.com/video-files/3129671/3129671-sd_640_360_30fps.mp4';
+  static const String _videoAsset = 'assets/videos/bg.mp4';
 
   late AnimationController _swipeHintController;
   late Animation<double> _swipeHintAnimation;
@@ -171,7 +169,7 @@ class _WelcomePageState extends ConsumerState<WelcomePage>
           }
         },
         child: VideoBackground(
-          videoUrl: _videoUrl,
+          assetPath: _videoAsset,
           child: SafeArea(
             child: Stack(
               children: [

@@ -1,3 +1,6 @@
+# Windows reserved device names
+nul
+
 # Miscellaneous
 *.class
 *.log
@@ -45,10 +48,11 @@ app.*.map.json
 /android/app/release
 
 # mcp settings
-opencode.json
-swagger-config.json
-.mcp.json
-.env
-.env.development
-.env.production
+#.claude
+#opencode.json
+#swagger-config.json
+#.mcp.json
+#.env
+#.env.development
+#.env.production
 
