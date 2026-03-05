@@ -7,8 +7,10 @@
 .vscode
 *.iml
 
-# Build outputs
-build/
+# Build outputs (build/web은 Docker에 포함)
+build/android
+build/ios
+build/.dart_tool
 .dart_tool/
 
 # Dependencies (will be fetched fresh)
