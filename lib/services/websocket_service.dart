@@ -160,12 +160,6 @@ class WebSocketService {
       callback: _onMyTableMessage,
     );
 
-    print('[WS] /user/queue/chat 구독');
-    _stompClient!.subscribe(
-      destination: '/user/queue/chat',
-      callback: _onChatMessage,
-    );
-
     print('[WS] /user/queue/notifications 구독');
     _stompClient!.subscribe(
       destination: '/user/queue/notifications',
@@ -276,6 +270,15 @@ class WebSocketService {
     );
   }
 
+  /// INACTIVE 테이블 재연결 델타 전송
+  void sendReconnectDelta() {
+    print('[WS] 재연결 델타 전송');
+
+    _stompClient?.send(
+      destination: '/app/table/reconnect',
+    );
+  }
+
   /// 디바이스 메시지 수신 처리
   void _onDeviceMessage(StompFrame frame) {
     print('[WS] 디바이스 메시지 수신: ${frame.body}');
@@ -287,18 +290,7 @@ class WebSocketService {
       final type = data['type'] as String?;
       print('[WS] 디바이스 메시지 타입: $type');
 
-      switch (type) {
-        case 'DEVICE_DELETED':
-          _handleDeviceDeleted(data);
-          break;
-
-        case 'DEVICE_STATUS':
-          _deviceStreamController.add(data);
-          break;
-
-        default:
-          print('[WS] 알 수 없는 디바이스 메시지: $type');
-      }
+      _deviceStreamController.add(data);
     } catch (e) {
       print('[WS] 디바이스 메시지 파싱 에러: $e');
     }
@@ -318,19 +310,21 @@ class WebSocketService {
       switch (type) {
         case 'TABLES_SNAPSHOT':
           // 전체 스냅샷 - sync 응답
-          final tablesJson = data['tables'] as List<dynamic>?;
+          final tablesJson = data['data'] as List<dynamic>?;
           if (tablesJson != null) {
             _tables = tablesJson
                 .map((json) => TableModel.fromJson(json as Map<String, dynamic>))
                 .toList();
             _tablesStreamController.add(List.unmodifiable(_tables));
             print('[WS] TABLES_SNAPSHOT: ${_tables.length}개 테이블');
+
+            // 스냅샷 검증은 Riverpod 쪽(matching_page)에서 처리
           }
           break;
 
         case 'TABLE_ADDED':
           // 테이블 추가
-          final tableJson = data['table'] as Map<String, dynamic>?;
+          final tableJson = data['data'] as Map<String, dynamic>?;
           if (tableJson != null) {
             final newTable = TableModel.fromJson(tableJson);
             // 중복 체크 후 추가
@@ -343,12 +337,28 @@ class WebSocketService {
           break;
 
         case 'TABLE_REMOVED':
-          // 테이블 삭제
-          final tableId = data['tableId'] as String?;
+          // 테이블 삭제 (브로드캐스트 델타 - 캐시에서만 제거)
+          final tableId = data['id'] as String?;
           if (tableId != null) {
             _tables.removeWhere((t) => t.id == tableId);
             _tablesStreamController.add(List.unmodifiable(_tables));
             print('[WS] TABLE_REMOVED: $tableId');
+          }
+          break;
+
+        case 'TABLE_UPDATED':
+          // 테이블 업데이트
+          final tableJson = data['data'] as Map<String, dynamic>?;
+          if (tableJson != null) {
+            final updatedTable = TableModel.fromJson(tableJson);
+            final index = _tables.indexWhere((t) => t.id == updatedTable.id);
+            if (index != -1) {
+              _tables[index] = updatedTable;
+            } else {
+              _tables.add(updatedTable);
+            }
+            _tablesStreamController.add(List.unmodifiable(_tables));
+            print('[WS] TABLE_UPDATED: ${updatedTable.id}');
           }
           break;
 
@@ -371,18 +381,17 @@ class WebSocketService {
       final type = data['type'] as String?;
       print('[WS] 내 테이블 메시지 타입: $type');
 
-      switch (type) {
-        case 'TABLE_DELETED':
-          _handleTableDeleted(data);
-          break;
-
-        case 'TABLE_UPDATED':
-          _myTableStreamController.add(data);
-          break;
-
-        default:
-          print('[WS] 알 수 없는 내 테이블 메시지: $type');
+      if (type == 'TABLE_DELETED') {
+        print('[WS] TABLE_DELETED 수신 → 로컬 테이블 초기화');
+        ApiService().resetCurrentTable();
+        final tableId = data['tableId'] as String? ?? data['id'] as String?;
+        if (tableId != null) {
+          _tableDeletedStreamController.add(tableId);
+        }
+        return;
       }
+
+      _myTableStreamController.add(data);
     } catch (e) {
       print('[WS] 내 테이블 메시지 파싱 에러: $e');
     }
@@ -399,45 +408,19 @@ class WebSocketService {
       final type = data['type'] as String?;
       print('[WS] 알림 메시지 타입: $type');
 
-      // 알림 스트림으로 전달 (UI에서 토스트 표시)
+      if (type == 'DEVICE_DELETED') {
+        print('[WS] DEVICE_DELETED 수신 → 로컬 정리 + 등록 화면 전환');
+        final apiService = ApiService();
+        apiService.resetCurrentTable();
+        _tables.clear();
+        disconnect();
+        apiService.authService.handleDeviceDeleted();
+        return;
+      }
+
       _notificationStreamController.add(data);
     } catch (e) {
       print('[WS] 알림 메시지 파싱 에러: $e');
-    }
-  }
-
-  /// 채팅 메시지 수신 처리
-  void _onChatMessage(StompFrame frame) {
-    if (frame.body == null) return;
-
-    // TODO: 채팅 메시지 처리 로직 추가
-  }
-
-  /// 디바이스 삭제 처리
-  void _handleDeviceDeleted(Map<String, dynamic> data) {
-    print('[WS] _handleDeviceDeleted 호출됨');
-
-    // 1. STOMP 연결 해제
-    disconnect();
-
-    // 2. AuthService에 알림 → 토큰 삭제 + unregistered 상태
-    print('[WS] authService.handleDeviceDeleted 호출');
-    ApiService().authService.handleDeviceDeleted();
-  }
-
-  /// 테이블 삭제 처리
-  void _handleTableDeleted(Map<String, dynamic> data) {
-    print('[WS] _handleTableDeleted 호출됨');
-    final tableId = data['tableId'] as String?;
-
-    if (tableId != null) {
-      // 1. 로컬 스토리지의 테이블 데이터 초기화
-      ApiService().resetCurrentTable();
-
-      // 2. Stream으로 이벤트 전달 (UI에서 처리)
-      _tableDeletedStreamController.add(tableId);
-
-      print('[WS] 테이블 $tableId 삭제 처리 완료');
     }
   }
 

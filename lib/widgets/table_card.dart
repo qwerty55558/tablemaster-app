@@ -19,6 +19,8 @@ class TableCard extends StatelessWidget {
         return AppColors.tableReserved;
       case TableStatus.chatting:
         return AppColors.tableChatting;
+      case TableStatus.inactive:
+        return AppColors.tableAvailable;
     }
   }
 
@@ -32,6 +34,8 @@ class TableCard extends StatelessWidget {
         return AppColors.tableReservedBg;
       case TableStatus.chatting:
         return AppColors.tableChattingBg;
+      case TableStatus.inactive:
+        return AppColors.tableAvailableBg;
     }
   }
 
@@ -45,6 +49,8 @@ class TableCard extends StatelessWidget {
         return '예약';
       case TableStatus.chatting:
         return '채팅중';
+      case TableStatus.inactive:
+        return '연결 끊김';
     }
   }
 

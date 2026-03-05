@@ -4,6 +4,7 @@ enum TableStatus {
   occupied, // 이용중
   reserved, // 예약
   chatting, // 채팅중
+  inactive, // 연결 끊김
 }
 
 /// 테이블 모델
@@ -62,6 +63,8 @@ class TableModel {
         return TableStatus.reserved;
       case 'chatting':
         return TableStatus.chatting;
+      case 'inactive':
+        return TableStatus.inactive;
       default:
         return TableStatus.available;
     }

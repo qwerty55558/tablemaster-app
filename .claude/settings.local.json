@@ -15,7 +15,10 @@
       "Bash(curl:*)",
       "Bash(netstat:*)",
       "Bash(findstr:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(flutter analyze:*)",
+      "Bash(git:*)",
+      "Bash(GIT_EDITOR=true git rebase:*)"
     ]
   },
   "disabledMcpjsonServers": [

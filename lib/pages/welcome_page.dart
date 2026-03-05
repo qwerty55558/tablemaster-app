@@ -44,7 +44,17 @@ class _WelcomePageState extends ConsumerState<WelcomePage>
     super.dispose();
   }
 
-  void _navigateToNextPage() {
+  Future<void> _navigateToNextPage() async {
+    final authStatus = ref.read(currentAuthStatusProvider);
+
+    // 인증되지 않은 상태 → 인증 시도 후 진행
+    if (authStatus != AuthStatus.authenticated) {
+      await _handleConnectionTap();
+      // 인증 실패 시 진행 차단
+      final newStatus = ref.read(authServiceProvider).status;
+      if (newStatus != AuthStatus.authenticated) return;
+    }
+
     final currentTable = ref.read(currentTableProvider);
 
     // 이미 테이블 설정이 되어있으면 MatchingPage로 이동

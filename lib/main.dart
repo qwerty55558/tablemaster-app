@@ -69,15 +69,17 @@ class _MyAppState extends ConsumerState<MyApp> {
   }
 
   void _onAuthStatusChange(AuthStatus status) {
+    // 같은 상태로 중복 호출 무시
+    if (status == _previousStatus) return;
     print('[AUTH] 상태 변경: $_previousStatus → $status');
 
-    // 인증 성공 → WebSocket 연결 + 초기화 데이터 갱신
+    // 인증 성공 → WebSocket 연결 후 내 테이블 동기화
     if (status == AuthStatus.authenticated) {
       print('[AUTH] WebSocket 연결 시도');
       WebSocketService().connect().then((_) async {
-        // WS 연결 후 내 테이블 정보 재조회: 있으면 연동, 없으면 storage + provider 초기화
         final table = await ApiService().getMyTable();
         ref.read(currentTableProvider.notifier).update(table);
+        print('[AUTH] 내 테이블 동기화: ${table?.id ?? 'null'}');
       });
     }
 
@@ -93,6 +95,9 @@ class _MyAppState extends ConsumerState<MyApp> {
   void _handleAuthLost(AuthStatus status) {
     // WebSocket 연결 종료
     WebSocketService().disconnect();
+
+    // 로컬 테이블 데이터 초기화
+    ref.read(currentTableProvider.notifier).clear();
 
     final context = navigatorKey.currentContext;
     if (context == null) return;

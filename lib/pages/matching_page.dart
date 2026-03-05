@@ -3,6 +3,7 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 import '../models/table_model.dart';
 import '../providers/providers.dart';
 import '../services/auth_service.dart';
+import '../services/websocket_service.dart';
 import '../theme/app_colors.dart';
 
 /// 매칭 페이지 - 사이드바 + 메인 콘텐츠 레이아웃
@@ -79,9 +80,27 @@ class _MatchingPageState extends ConsumerState<MatchingPage> {
     // 테이블 목록 (HTTP fallback + WebSocket 실시간)
     final tables = ref.watch(tablesProvider);
     final currentTable = ref.watch(currentTableProvider);
-    final otherTables = tables.where((t) => t.id != currentTable?.id).toList();
     final selectedTable = ref.watch(selectedTableProvider);
     final isConnected = ref.watch(currentAuthStatusProvider) == AuthStatus.authenticated;
+
+    // 스냅샷 기반 로컬 테이블 검증
+    if (currentTable != null) {
+      final match = tables.where((t) => t.id == currentTable.id).firstOrNull;
+      if (match == null) {
+        // 스냅샷에 없음 → 초기화
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          ref.read(currentTableProvider.notifier).clear();
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        });
+      } else if (match.status == TableStatus.inactive) {
+        // INACTIVE → 재연결 델타 전송
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          WebSocketService().sendReconnectDelta();
+        });
+      }
+    }
+
+    final otherTables = tables.where((t) => t.id != currentTable?.id).toList();
 
     return Scaffold(
       child: Container(
@@ -403,6 +422,7 @@ class _TableListItem extends StatelessWidget {
   Color get _statusColor {
     switch (table.status) {
       case TableStatus.available:
+      case TableStatus.inactive:
         return AppColors.tableAvailable;
       case TableStatus.occupied:
         return AppColors.tableOccupied;
@@ -550,6 +570,8 @@ class _TableListItem extends StatelessWidget {
         return '예약';
       case TableStatus.chatting:
         return '채팅중';
+      case TableStatus.inactive:
+        return '연결 끊김';
     }
   }
 }
@@ -842,6 +864,7 @@ class _MainContent extends StatelessWidget {
   Color _getStatusColor(TableStatus status) {
     switch (status) {
       case TableStatus.available:
+      case TableStatus.inactive:
         return AppColors.tableAvailable;
       case TableStatus.occupied:
         return AppColors.tableOccupied;
@@ -862,6 +885,8 @@ class _MainContent extends StatelessWidget {
         return '예약';
       case TableStatus.chatting:
         return '채팅중';
+      case TableStatus.inactive:
+        return '연결 끊김';
     }
   }
 
