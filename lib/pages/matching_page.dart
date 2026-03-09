@@ -72,33 +72,30 @@ class _MatchingPageState extends ConsumerState<MatchingPage> {
 
   @override
   Widget build(BuildContext context) {
-    // 테이블 삭제 이벤트 구독 (ref.listen으로 side effect 처리)
-    ref.listen<AsyncValue<String>>(tableDeletedProvider, (previous, next) {
-      next.whenData((tableId) => _handleTableDeleted(tableId));
+    // currentTable이 null로 변경되면 (삭제 등) 메인으로 이동
+    ref.listen<TableModel?>(currentTableProvider, (previous, next) {
+      if (previous != null && next == null) {
+        _handleTableDeleted(previous.id);
+      }
+    });
+
+    // INACTIVE 상태 감지 → 재연결 델타 전송
+    ref.listen<List<TableModel>>(tablesProvider, (previous, next) {
+      final currentTable = ref.read(currentTableProvider);
+      if (currentTable == null) return;
+
+      final match = next.where((t) => t.id == currentTable.id).firstOrNull;
+      if (match != null && match.status == TableStatus.inactive) {
+        WebSocketService().sendReconnectDelta();
+      }
     });
 
     // 테이블 목록 (HTTP fallback + WebSocket 실시간)
     final tables = ref.watch(tablesProvider);
     final currentTable = ref.watch(currentTableProvider);
     final selectedTable = ref.watch(selectedTableProvider);
-    final isConnected = ref.watch(currentAuthStatusProvider) == AuthStatus.authenticated;
-
-    // 스냅샷 기반 로컬 테이블 검증
-    if (currentTable != null) {
-      final match = tables.where((t) => t.id == currentTable.id).firstOrNull;
-      if (match == null) {
-        // 스냅샷에 없음 → 초기화
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          ref.read(currentTableProvider.notifier).clear();
-          Navigator.of(context).popUntil((route) => route.isFirst);
-        });
-      } else if (match.status == TableStatus.inactive) {
-        // INACTIVE → 재연결 델타 전송
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          WebSocketService().sendReconnectDelta();
-        });
-      }
-    }
+    final authStatus = ref.watch(currentAuthStatusProvider);
+    final isConnected = authStatus == AuthStatus.authenticated;
 
     final otherTables = tables.where((t) => t.id != currentTable?.id).toList();
 
@@ -819,10 +816,10 @@ class _MainContent extends StatelessWidget {
                   const SizedBox(height: 12),
                   _InfoCard(
                     icon: Icons.access_time,
-                    label: '업데이트',
-                    value: table.updatedAt != null
-                        ? _formatTime(table.updatedAt!)
-                        : '방금 전',
+                    label: '이용 시간',
+                    value: table.createdAt != null
+                        ? _formatElapsed(table.createdAt!)
+                        : '-',
                   ),
                 ],
               ),
@@ -890,14 +887,14 @@ class _MainContent extends StatelessWidget {
     }
   }
 
-  String _formatTime(DateTime time) {
-    final now = DateTime.now();
-    final diff = now.difference(time);
+  String _formatElapsed(DateTime since) {
+    final diff = DateTime.now().difference(since);
+    final hours = diff.inHours;
+    final minutes = diff.inMinutes % 60;
 
-    if (diff.inMinutes < 1) return '방금 전';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}분 전';
-    if (diff.inHours < 24) return '${diff.inHours}시간 전';
-    return '${diff.inDays}일 전';
+    if (hours > 0) return '$hours시간 $minutes분';
+    if (minutes > 0) return '$minutes분';
+    return '방금 전';
   }
 }
 

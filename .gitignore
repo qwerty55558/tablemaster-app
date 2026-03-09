@@ -49,9 +49,9 @@ app.*.map.json
 
 # mcp settings
 #.claude
-#opencode.json
-#swagger-config.json
-#.mcp.json
+opencode.json
+swagger-config.json
+.mcp.json
 #.env
 #.env.development
 #.env.production

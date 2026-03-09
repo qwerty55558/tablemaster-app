@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
@@ -65,17 +66,6 @@ final tablesStreamProvider = StreamProvider<List<TableModel>>((ref) {
   return wsService.tablesStream;
 });
 
-/// 테이블 삭제 이벤트 스트림
-final tableDeletedProvider = StreamProvider<String>((ref) {
-  final wsService = ref.watch(webSocketServiceProvider);
-  return wsService.tableDeletedStream;
-});
-
-/// 내 테이블 업데이트 스트림
-final myTableStreamProvider = StreamProvider<Map<String, dynamic>>((ref) {
-  final wsService = ref.watch(webSocketServiceProvider);
-  return wsService.myTableStream;
-});
 
 /// 알림 스트림
 final notificationStreamProvider = StreamProvider<Map<String, dynamic>>((ref) {
@@ -84,21 +74,23 @@ final notificationStreamProvider = StreamProvider<Map<String, dynamic>>((ref) {
 });
 
 // ============================================================
-// Table State Providers
+// Table State Providers (Riverpod = 단일 소스)
 // ============================================================
 
 /// 테이블 목록 Provider (HTTP fallback + WebSocket 실시간)
 final tablesProvider = StateNotifierProvider<TablesNotifier, List<TableModel>>((ref) {
   final apiService = ref.watch(apiServiceProvider);
   final wsService = ref.watch(webSocketServiceProvider);
-  return TablesNotifier(apiService, wsService);
+  return TablesNotifier(apiService, wsService, ref);
 });
 
 class TablesNotifier extends StateNotifier<List<TableModel>> {
   final ApiService _apiService;
   final WebSocketService _wsService;
+  final Ref _ref;
+  StreamSubscription? _wsSub;
 
-  TablesNotifier(this._apiService, this._wsService) : super([]) {
+  TablesNotifier(this._apiService, this._wsService, this._ref) : super([]) {
     _init();
   }
 
@@ -107,9 +99,29 @@ class TablesNotifier extends StateNotifier<List<TableModel>> {
     final initialTables = await _apiService.getTables();
     state = initialTables;
 
-    // 2. WebSocket 스트림 구독
-    _wsService.tablesStream.listen((tables) {
+    // 2. 브로드캐스트 스트림 구독 → 내 테이블 자동 동기화/삭제
+    _wsSub = _wsService.tablesStream.listen((tables) {
       state = tables;
+
+      final currentTable = _ref.read(currentTableProvider);
+      final deviceId = _apiService.deviceId;
+
+      if (currentTable != null) {
+        final match = tables.where((t) => t.id == currentTable.id).firstOrNull;
+        if (match == null) {
+          // 브로드캐스트에서 삭제됨 → currentTable 초기화
+          _ref.read(currentTableProvider.notifier).clear();
+        } else if (match != currentTable) {
+          // 데이터 변경 → currentTable 갱신
+          _ref.read(currentTableProvider.notifier).update(match);
+        }
+      } else if (deviceId != null) {
+        // currentTable이 null인 상태에서 내 디바이스 테이블이 추가되면 자동 세팅
+        final myTable = tables.where((t) => t.id == deviceId).firstOrNull;
+        if (myTable != null) {
+          _ref.read(currentTableProvider.notifier).update(myTable);
+        }
+      }
     });
   }
 
@@ -119,26 +131,46 @@ class TablesNotifier extends StateNotifier<List<TableModel>> {
       state = tables;
     }
   }
+
+  @override
+  void dispose() {
+    _wsSub?.cancel();
+    super.dispose();
+  }
 }
 
-/// 현재 테이블 Provider (StateNotifier로 변경 추적)
+/// 현재 테이블 Provider (순수 상태 홀더)
+/// 갱신/삭제는 TablesNotifier 브로드캐스트에서 자동 처리
+/// DEVICE_DELETED만 직접 구독
 final currentTableProvider = StateNotifierProvider<CurrentTableNotifier, TableModel?>((ref) {
-  final apiService = ref.watch(apiServiceProvider);
-  return CurrentTableNotifier(apiService);
+  final wsService = ref.watch(webSocketServiceProvider);
+  return CurrentTableNotifier(wsService);
 });
 
 class CurrentTableNotifier extends StateNotifier<TableModel?> {
-  final ApiService _apiService;
+  StreamSubscription? _deviceDeletedSub;
 
-  CurrentTableNotifier(this._apiService) : super(_apiService.currentTable);
+  CurrentTableNotifier(WebSocketService wsService) : super(null) {
+    _deviceDeletedSub = wsService.notificationStream.listen((data) {
+      if (data['type'] == 'DEVICE_DELETED') {
+        print('[Provider] DEVICE_DELETED → currentTable 초기화');
+        state = null;
+      }
+    });
+  }
 
   void update(TableModel? table) {
     state = table;
   }
 
   void clear() {
-    _apiService.resetCurrentTable();
     state = null;
+  }
+
+  @override
+  void dispose() {
+    _deviceDeletedSub?.cancel();
+    super.dispose();
   }
 }
 
@@ -288,16 +320,16 @@ class SetupFormNotifier extends StateNotifier<SetupFormState> {
     setLoading(true);
     try {
       final apiService = _ref.read(apiServiceProvider);
-      await apiService.setupTable(
+      final table = await apiService.setupTable(
         tableId: state.tableName.trim(),
         location: state.selectedLocation!,
         guestCount: state.guestCount,
         femaleCount: state.femaleCount,
         maleCount: state.maleCount,
       );
-      // currentTable 갱신
-      _ref.read(currentTableProvider.notifier).update(apiService.currentTable);
-      return true;
+      // Riverpod으로 상태 관리
+      _ref.read(currentTableProvider.notifier).update(table);
+      return table != null;
     } catch (e) {
       return false;
     } finally {

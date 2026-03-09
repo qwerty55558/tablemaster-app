@@ -65,6 +65,8 @@ class ConnectionIndicator extends StatelessWidget {
         return const Color(0xFF71717A); // zinc-500
       case AuthStatus.failed:
         return const Color(0xFFEF4444); // red-500
+      case AuthStatus.connectionLost:
+        return const Color(0xFFF59E0B); // amber-500
       case AuthStatus.initializing:
         return const Color(0xFF71717A); // zinc-500
     }
@@ -123,6 +125,18 @@ class ConnectionIndicator extends StatelessWidget {
             child: Icon(Icons.close, size: 10, color: Color(0xFFFAFAFA)),
           ),
         );
+      case AuthStatus.connectionLost:
+        return Container(
+          width: 14,
+          height: 14,
+          decoration: const BoxDecoration(
+            color: Color(0xFFF59E0B),
+            shape: BoxShape.circle,
+          ),
+          child: const Center(
+            child: Icon(Icons.wifi_off, size: 10, color: Color(0xFF18181B)),
+          ),
+        );
       case AuthStatus.initializing:
         return const SizedBox(
           width: 12,
@@ -145,6 +159,8 @@ class ConnectionIndicator extends StatelessWidget {
         return '미등록';
       case AuthStatus.failed:
         return '연결 실패';
+      case AuthStatus.connectionLost:
+        return '재연결 중';
       case AuthStatus.initializing:
         return '연결 중...';
     }
@@ -162,6 +178,8 @@ String getConnectionTooltip(AuthStatus status) {
       return '디바이스가 등록되지 않았습니다\n탭하여 재시도';
     case AuthStatus.failed:
       return '서버 연결에 실패했습니다\n탭하여 재시도';
+    case AuthStatus.connectionLost:
+      return '네트워크 연결이 끊어졌습니다\n자동 재연결 시도 중...';
     case AuthStatus.initializing:
       return '서버에 연결 중입니다...';
   }

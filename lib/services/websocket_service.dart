@@ -22,12 +22,9 @@ class WebSocketService {
   StompClient? _stompClient;
   final _connectionResultController =
       StreamController<WebSocketConnectionResult>.broadcast();
-  final _tableDeletedStreamController = StreamController<String>.broadcast();
   final _deviceStreamController =
       StreamController<Map<String, dynamic>>.broadcast();
   final _tablesStreamController = StreamController<List<TableModel>>.broadcast();
-  final _myTableStreamController =
-      StreamController<Map<String, dynamic>>.broadcast();
   final _notificationStreamController =
       StreamController<Map<String, dynamic>>.broadcast();
 
@@ -41,6 +38,7 @@ class WebSocketService {
   Timer? _reconnectTimer;
   String? _lastConnectionError;
   Completer<WebSocketConnectionResult>? _connectCompleter;
+  Completer<void>? _syncCompleter;
 
   // Singleton
   static final WebSocketService _instance = WebSocketService._internal();
@@ -49,10 +47,8 @@ class WebSocketService {
 
   Stream<WebSocketConnectionResult> get connectionResultStream =>
       _connectionResultController.stream;
-  Stream<String> get tableDeletedStream => _tableDeletedStreamController.stream;
   Stream<Map<String, dynamic>> get deviceStream => _deviceStreamController.stream;
   Stream<List<TableModel>> get tablesStream => _tablesStreamController.stream;
-  Stream<Map<String, dynamic>> get myTableStream => _myTableStreamController.stream;
   Stream<Map<String, dynamic>> get notificationStream =>
       _notificationStreamController.stream;
   List<TableModel> get tables => List.unmodifiable(_tables);
@@ -154,12 +150,6 @@ class WebSocketService {
       callback: _onTablesMessage,
     );
 
-    print('[WS] /user/queue/myTable 구독');
-    _stompClient!.subscribe(
-      destination: '/user/queue/myTable',
-      callback: _onMyTableMessage,
-    );
-
     print('[WS] /user/queue/notifications 구독');
     _stompClient!.subscribe(
       destination: '/user/queue/notifications',
@@ -224,17 +214,18 @@ class WebSocketService {
 
   /// 재연결 스케줄링 (토큰 갱신 후 재연결)
   void _scheduleReconnect() {
-    if (_reconnectAttempts >= _maxReconnectAttempts) {
-      // 최대 재시도 횟수 초과 - AuthStatus를 failed로 변경
-      ApiService().authService.notifyConnectionLost();
-      return;
-    }
-
     _reconnectTimer?.cancel();
     _reconnectAttempts++;
 
-    // 점진적 백오프: 5초, 10초, 15초...
-    final delay = Duration(seconds: 5 * _reconnectAttempts);
+    if (_reconnectAttempts == _maxReconnectAttempts) {
+      // 빠른 재시도 소진 → connectionLost 상태로 전환 (데이터 유지)
+      ApiService().authService.notifyConnectionLost();
+    }
+
+    // 빠른 단계: 5초, 10초, 15초 / 느린 단계: 30초 간격
+    final delay = _reconnectAttempts <= _maxReconnectAttempts
+        ? Duration(seconds: 5 * _reconnectAttempts)
+        : const Duration(seconds: 30);
     _reconnectTimer = Timer(delay, _reconnectWithTokenRefresh);
   }
 
@@ -258,6 +249,26 @@ class WebSocketService {
 
     // 4. 새 토큰으로 STOMP 재연결
     await connect();
+  }
+
+  /// 연결 + 동기화 완료까지 대기
+  /// connect() 후 TABLES_SNAPSHOT 수신까지 기다림
+  Future<WebSocketConnectionResult> connectAndSync() async {
+    _syncCompleter = Completer<void>();
+    final result = await connect();
+    if (result != WebSocketConnectionResult.success) {
+      _syncCompleter = null;
+      return result;
+    }
+
+    // TABLES_SNAPSHOT 수신 대기 (최대 10초)
+    try {
+      await _syncCompleter!.future.timeout(const Duration(seconds: 10));
+    } catch (_) {
+      print('[WS] 동기화 타임아웃 - 연결은 유지');
+    }
+    _syncCompleter = null;
+    return result;
   }
 
   /// 연결 후 동기화 요청
@@ -318,21 +329,28 @@ class WebSocketService {
             _tablesStreamController.add(List.unmodifiable(_tables));
             print('[WS] TABLES_SNAPSHOT: ${_tables.length}개 테이블');
 
+            // 동기화 완료 알림
+            if (_syncCompleter != null && !_syncCompleter!.isCompleted) {
+              _syncCompleter!.complete();
+            }
+
             // 스냅샷 검증은 Riverpod 쪽(matching_page)에서 처리
           }
           break;
 
         case 'TABLE_ADDED':
-          // 테이블 추가
+          // 테이블 추가 (이미 존재하면 갱신)
           final tableJson = data['data'] as Map<String, dynamic>?;
           if (tableJson != null) {
             final newTable = TableModel.fromJson(tableJson);
-            // 중복 체크 후 추가
-            if (!_tables.any((t) => t.id == newTable.id)) {
+            final existingIndex = _tables.indexWhere((t) => t.id == newTable.id);
+            if (existingIndex != -1) {
+              _tables[existingIndex] = newTable;
+            } else {
               _tables.add(newTable);
-              _tablesStreamController.add(List.unmodifiable(_tables));
-              print('[WS] TABLE_ADDED: ${newTable.id}');
             }
+            _tablesStreamController.add(List.unmodifiable(_tables));
+            print('[WS] TABLE_ADDED: ${newTable.id} (name: ${newTable.name})');
           }
           break;
 
@@ -358,6 +376,7 @@ class WebSocketService {
               _tables.add(updatedTable);
             }
             _tablesStreamController.add(List.unmodifiable(_tables));
+
             print('[WS] TABLE_UPDATED: ${updatedTable.id}');
           }
           break;
@@ -367,33 +386,6 @@ class WebSocketService {
       }
     } catch (e) {
       print('[WS] 테이블 목록 메시지 파싱 에러: $e');
-    }
-  }
-
-  /// 내 테이블 메시지 수신 처리
-  void _onMyTableMessage(StompFrame frame) {
-    print('[WS] 내 테이블 메시지 수신: ${frame.body}');
-
-    if (frame.body == null) return;
-
-    try {
-      final data = jsonDecode(frame.body!) as Map<String, dynamic>;
-      final type = data['type'] as String?;
-      print('[WS] 내 테이블 메시지 타입: $type');
-
-      if (type == 'TABLE_DELETED') {
-        print('[WS] TABLE_DELETED 수신 → 로컬 테이블 초기화');
-        ApiService().resetCurrentTable();
-        final tableId = data['tableId'] as String? ?? data['id'] as String?;
-        if (tableId != null) {
-          _tableDeletedStreamController.add(tableId);
-        }
-        return;
-      }
-
-      _myTableStreamController.add(data);
-    } catch (e) {
-      print('[WS] 내 테이블 메시지 파싱 에러: $e');
     }
   }
 
@@ -409,12 +401,10 @@ class WebSocketService {
       print('[WS] 알림 메시지 타입: $type');
 
       if (type == 'DEVICE_DELETED') {
-        print('[WS] DEVICE_DELETED 수신 → 로컬 정리 + 등록 화면 전환');
-        final apiService = ApiService();
-        apiService.resetCurrentTable();
+        print('[WS] DEVICE_DELETED 수신');
         _tables.clear();
         disconnect();
-        apiService.authService.handleDeviceDeleted();
+        ApiService().authService.handleDeviceDeleted();
         return;
       }
 
@@ -427,10 +417,8 @@ class WebSocketService {
   void dispose() {
     disconnect();
     _connectionResultController.close();
-    _tableDeletedStreamController.close();
     _deviceStreamController.close();
     _tablesStreamController.close();
-    _myTableStreamController.close();
     _notificationStreamController.close();
   }
 }

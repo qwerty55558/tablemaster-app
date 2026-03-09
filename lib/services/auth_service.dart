@@ -24,6 +24,9 @@ enum AuthStatus {
 
   /// 인증 실패 (네트워크 오류 등)
   failed,
+
+  /// 연결 끊김 (일시적 네트워크 단절, 데이터 유지)
+  connectionLost,
 }
 
 /// 인증 응답 모델
@@ -373,10 +376,10 @@ class AuthService {
     }
   }
 
-  /// WebSocket 연결 끊김 알림
-  /// 재연결 실패 시 호출되어 상태를 failed로 변경
+  /// WebSocket 연결 끊김 알림 (일시적 네트워크 단절)
+  /// 재연결 실패 시 호출 - 데이터는 유지하고 재연결을 계속 시도
   void notifyConnectionLost() {
-    _setStatus(AuthStatus.failed, 'WebSocket 연결이 끊어졌습니다');
+    _setStatus(AuthStatus.connectionLost, 'WebSocket 연결이 끊어졌습니다');
   }
 
   /// WebSocket 연결로 화이트리스트 검증

@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 import '../services/auth_service.dart';
+import '../services/websocket_service.dart';
 import '../providers/providers.dart';
 import '../widgets/connection_indicator.dart';
 import '../widgets/video_background.dart';
@@ -46,6 +47,8 @@ class _WelcomePageState extends ConsumerState<WelcomePage>
 
   Future<void> _navigateToNextPage() async {
     final authStatus = ref.read(currentAuthStatusProvider);
+    final wasDisconnected = authStatus == AuthStatus.connectionLost ||
+        authStatus == AuthStatus.failed;
 
     // 인증되지 않은 상태 → 인증 시도 후 진행
     if (authStatus != AuthStatus.authenticated) {
@@ -55,9 +58,23 @@ class _WelcomePageState extends ConsumerState<WelcomePage>
       if (newStatus != AuthStatus.authenticated) return;
     }
 
+    // 항상 서버에서 최신 내 테이블 조회 (프론트에서 등록한 경우 대비)
+    final apiService = ref.read(apiServiceProvider);
+    final myTable = await apiService.getMyTable();
+    if (myTable != null) {
+      ref.read(currentTableProvider.notifier).update(myTable);
+      // 재연결 시 reconnect 델타 전송
+      if (wasDisconnected) {
+        WebSocketService().sendReconnectDelta();
+      }
+    }
+
     final currentTable = ref.read(currentTableProvider);
 
-    // 이미 테이블 설정이 되어있으면 MatchingPage로 이동
+    // 재연결인데 테이블이 없으면 → 네비게이션 안 함 (연결 확인만)
+    if (wasDisconnected && currentTable == null) return;
+
+    // 테이블 있으면 MatchingPage, 없으면 SetupPage
     final Widget destination = currentTable != null
         ? const MatchingPage()
         : const SetupPage();
@@ -109,6 +126,15 @@ class _WelcomePageState extends ConsumerState<WelcomePage>
       case AuthStatus.failed:
         // 실패 → 재로그인 시도
         success = await authService.deviceLogin();
+        break;
+
+      case AuthStatus.connectionLost:
+        // 연결 끊김 → 재로그인 + WS 연결 + 테이블 동기화 완료까지 대기
+        success = await authService.deviceLogin();
+        if (success) {
+          final wsResult = await WebSocketService().connectAndSync();
+          success = wsResult == WebSocketConnectionResult.success;
+        }
         break;
 
       case AuthStatus.authenticated:

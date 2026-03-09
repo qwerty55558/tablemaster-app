@@ -40,11 +40,24 @@ class _MyAppState extends ConsumerState<MyApp> {
     _previousStatus = ApiService().authService.status;
 
     // 백그라운드에서 초기화 (UI 블로킹 없음)
-    ApiService().initialize().then((_) {
-      if (ApiService().authService.status == AuthStatus.authenticated) {
-        WebSocketService().connect();
-      }
-    });
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    final apiService = ApiService();
+    final connected = await apiService.initialize();
+
+    if (connected) {
+      // 내 테이블 복원 (Riverpod)
+      final myTable = await apiService.getMyTable();
+      ref.read(currentTableProvider.notifier).update(myTable);
+
+      // WebSocket 연결
+      WebSocketService().connect();
+
+      // tablesProvider 즉시 초기화 (브로드캐스트 리스너 활성화)
+      ref.read(tablesProvider);
+    }
   }
 
   @override
@@ -73,22 +86,42 @@ class _MyAppState extends ConsumerState<MyApp> {
     if (status == _previousStatus) return;
     print('[AUTH] 상태 변경: $_previousStatus → $status');
 
-    // 인증 성공 → WebSocket 연결 후 내 테이블 동기화
+    // 인증 성공 → WebSocket 연결 + 내 테이블 동기화
     if (status == AuthStatus.authenticated) {
       print('[AUTH] WebSocket 연결 시도');
       WebSocketService().connect().then((_) async {
         final table = await ApiService().getMyTable();
         ref.read(currentTableProvider.notifier).update(table);
+        ref.read(tablesProvider); // 브로드캐스트 리스너 활성화
         print('[AUTH] 내 테이블 동기화: ${table?.id ?? 'null'}');
       });
     }
 
-    // 인증됨 → 미등록/실패로 변경된 경우 처리
+    // 연결 끊김 (일시적) → 데이터 유지, 재연결 대기
+    if (status == AuthStatus.connectionLost) {
+      print('[AUTH] 연결 끊김 → 데이터 유지, 재연결 대기');
+      _previousStatus = status;
+      return;
+    }
+
+    // 인증됨 → 미등록/실패로 변경된 경우 처리 (영구적 인증 해제)
     if (_previousStatus == AuthStatus.authenticated &&
         (status == AuthStatus.unregistered || status == AuthStatus.failed)) {
       print('[AUTH] 인증 해제 감지 → _handleAuthLost 호출');
       _handleAuthLost(status);
     }
+
+    // connectionLost → authenticated 복구 시 동기화
+    if (_previousStatus == AuthStatus.connectionLost &&
+        status == AuthStatus.authenticated) {
+      print('[AUTH] 연결 복구 → WebSocket 재연결 + 동기화');
+      WebSocketService().connect().then((_) async {
+        final table = await ApiService().getMyTable();
+        ref.read(currentTableProvider.notifier).update(table);
+        print('[AUTH] 재연결 후 테이블 동기화: ${table?.id ?? 'null'}');
+      });
+    }
+
     _previousStatus = status;
   }
 
@@ -96,7 +129,7 @@ class _MyAppState extends ConsumerState<MyApp> {
     // WebSocket 연결 종료
     WebSocketService().disconnect();
 
-    // 로컬 테이블 데이터 초기화
+    // 테이블 상태 초기화 (Riverpod)
     ref.read(currentTableProvider.notifier).clear();
 
     final context = navigatorKey.currentContext;
