@@ -18,12 +18,53 @@
       "Bash(wc:*)",
       "Bash(flutter analyze:*)",
       "Bash(git:*)",
-      "Bash(GIT_EDITOR=true git rebase:*)"
+      "Bash(GIT_EDITOR=true git rebase:*)",
+      "Bash(docker buildx:*)",
+      "Bash(ls:*)",
+      "Bash(docker:*)",
+      "Bash(npx:*)",
+      "mcp__agent-browser__browser_new_session",
+      "Read(//Applications/Google Chrome.app/Contents/MacOS/**)",
+      "Read(//Applications/**)",
+      "Bash(brew install:*)",
+      "Bash(python3:*)",
+      "Bash(npm search:*)",
+      "Bash(npm install:*)",
+      "Bash(agent-browser:*)",
+      "Bash(npm info:*)",
+      "Bash(grep:*)",
+      "Bash(node:*)",
+      "mcp__agent-browser__browser_navigate",
+      "mcp__agent-browser__browser_get_title",
+      "mcp__browser__browser_navigate",
+      "mcp__browser__browser_screenshot",
+      "mcp__browser__browser_snapshot",
+      "mcp__browser__browser_session_list",
+      "Bash(echo:*)",
+      "mcp__browser__browser_get_html",
+      "WebSearch",
+      "mcp__swagger__get-api-doc",
+      "mcp__db-server__query",
+      "mcp__swagger__get-api-info",
+      "Bash(flutter devices:*)",
+      "Bash(flutter run:*)",
+      "Bash(find /Users/personal-ai/Projects/personal/tableProject/app/web -type f -name \"*.html\" -o -name \"*.js\" -o -name \"*.json\" 2>/dev/null | head -20)",
+      "Bash(find /Users/personal-ai/Projects/personal/tableProject/app/android -name \"*.xml\" -o -name \"*.gradle\" 2>/dev/null | grep -E \"\\(network|manifest|build\\)\" | head -10)",
+      "Bash(find /Users/personal-ai/Projects/personal/tableProject/be/src/main/java -name \"*Config*.java\" -o -name \"*Cors*.java\" -o -name \"*Security*.java\" 2>/dev/null | head -10)",
+      "Bash(find /Users/personal-ai/Projects/personal/tableProject/be -name \"*swagger*\" -o -name \"*openapi*\" -o -name \"*api*spec*\" 2>/dev/null | head -20)",
+      "Bash(find /Users/personal-ai/Projects/personal/tableProject/be -type f \\\\\\( -name \"*.ts\" -o -name \"*.java\" \\\\\\) 2>/dev/null | head -50)",
+      "Bash(find /Users/personal-ai/Projects/personal/tableProject -type f -name '*.java' 2>/dev/null | head -50)",
+      "Bash(find /Users/personal-ai/Projects/personal/tableProject/app -path \"*/stomp_dart_client*\" -name \"*.dart\" 2>/dev/null | head -5)",
+      "Bash(find /Users/personal-ai/Projects/personal/tableProject/app/lib/repositories -type f -name \"*.dart\" 2>/dev/null | head -10)"
     ]
   },
-  "disabledMcpjsonServers": [
-    "crawl4ai",
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
     "db-server",
-    "swagger"
+    "swagger",
+    "agent-browser"
+  ],
+  "disabledMcpjsonServers": [
+    "crawl4ai"
   ]
 }

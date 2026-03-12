@@ -45,8 +45,11 @@ class ApiConfig {
 
   // Business Endpoints
   static const String tables = '/tables';
-  static const String myTable = '/tables/my';
   static const String tableSetup = '/tables/setup';
   static const String tableReset = '/tables'; // + /{tableId}/reset
-  static const String chatRequest = '/chat/request';
+
+  // Notification Endpoints
+  static const String notifications = '/device/notifications';
+  static const String unreadCount = '/device/notifications/unread-count';
+  static const String readAllNotifications = '/device/notifications/read-all';
 }

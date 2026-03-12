@@ -41,6 +41,19 @@ class AuthenticatedClient {
     return response;
   }
 
+  /// PATCH 요청 (401 시 자동 재발급)
+  Future<http.Response> patch(Uri url, {Object? body}) async {
+    var response = await http.patch(url, headers: _headers, body: body);
+
+    if (response.statusCode == 401) {
+      if (await _refreshAndRetry()) {
+        response = await http.patch(url, headers: _headers, body: body);
+      }
+    }
+
+    return response;
+  }
+
   /// 토큰 갱신 시도
   Future<bool> _refreshAndRetry() async {
     // 1. 액세스 토큰 갱신 시도

@@ -58,15 +58,9 @@ class _WelcomePageState extends ConsumerState<WelcomePage>
       if (newStatus != AuthStatus.authenticated) return;
     }
 
-    // 항상 서버에서 최신 내 테이블 조회 (프론트에서 등록한 경우 대비)
-    final apiService = ref.read(apiServiceProvider);
-    final myTable = await apiService.getMyTable();
-    if (myTable != null) {
-      ref.read(currentTableProvider.notifier).update(myTable);
-      // 재연결 시 reconnect 델타 전송
-      if (wasDisconnected) {
-        WebSocketService().sendReconnectDelta();
-      }
+    // 재연결 시 reconnect 델타 전송
+    if (wasDisconnected) {
+      WebSocketService().sendReconnectDelta();
     }
 
     final currentTable = ref.read(currentTableProvider);

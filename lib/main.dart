@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
@@ -5,6 +6,8 @@ import 'services/api_service.dart';
 import 'services/auth_service.dart';
 import 'services/websocket_service.dart';
 import 'providers/providers.dart';
+import 'models/table_model.dart';
+import 'pages/matching_page.dart';
 import 'pages/welcome_page.dart';
 import 'theme/app_colors.dart';
 
@@ -14,7 +17,11 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   const bool isProd = bool.fromEnvironment('IS_PROD', defaultValue: false);
-  final envFile = isProd ? '.env.production' : '.env.development';
+  final envFile = isProd
+      ? '.env.production'
+      : kIsWeb
+          ? '.env.web'
+          : '.env.development';
   await dotenv.load(fileName: envFile);
 
   runApp(
@@ -33,14 +40,39 @@ class MyApp extends ConsumerStatefulWidget {
 
 class _MyAppState extends ConsumerState<MyApp> {
   AuthStatus _previousStatus = AuthStatus.initializing;
+  bool _initialConnectDone = false;
+  late final AppLifecycleListener _lifecycleListener;
 
   @override
   void initState() {
     super.initState();
     _previousStatus = ApiService().authService.status;
 
+    _lifecycleListener = AppLifecycleListener(
+      onStateChange: _onLifecycleChange,
+    );
+
     // 백그라운드에서 초기화 (UI 블로킹 없음)
     _initializeApp();
+  }
+
+  @override
+  void dispose() {
+    _lifecycleListener.dispose();
+    super.dispose();
+  }
+
+  /// Fix 1: 백그라운드 → 포그라운드 복귀 시 WS 상태 확인
+  void _onLifecycleChange(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      final ws = WebSocketService();
+      if (!ws.isConnected && _previousStatus == AuthStatus.authenticated) {
+        print('[LIFECYCLE] resumed: WS dead → 재연결');
+        ws.connect().then((_) {
+          ref.read(tableRepositoryProvider).refresh();
+        });
+      }
+    }
   }
 
   Future<void> _initializeApp() async {
@@ -48,15 +80,23 @@ class _MyAppState extends ConsumerState<MyApp> {
     final connected = await apiService.initialize();
 
     if (connected) {
-      // 내 테이블 복원 (Riverpod)
-      final myTable = await apiService.getMyTable();
-      ref.read(currentTableProvider.notifier).update(myTable);
+      // Fix 6: 초기 연결은 여기서 직접 처리, auth listener 중복 방지
+      _initialConnectDone = true;
 
-      // WebSocket 연결
+      // WebSocket 연결 → _requestSync() → TABLES_SNAPSHOT으로 초기 데이터 수신
       WebSocketService().connect();
 
-      // tablesProvider 즉시 초기화 (브로드캐스트 리스너 활성화)
-      ref.read(tablesProvider);
+      // Repository 구독 활성화 (WS 델타 수신 시작)
+      ref.read(tableRepositoryProvider);
+
+      // Fix 2: SNAPSHOT 타임아웃 → HTTP fallback
+      Future.delayed(const Duration(seconds: 8), () {
+        final repo = ref.read(tableRepositoryProvider);
+        if (repo.tables.isEmpty) {
+          print('[INIT] SNAPSHOT 타임아웃 → HTTP fallback');
+          repo.refresh();
+        }
+      });
     }
   }
 
@@ -67,6 +107,32 @@ class _MyAppState extends ConsumerState<MyApp> {
       next.whenData((status) {
         _onAuthStatusChange(status);
       });
+    });
+
+    // 내 테이블 등록 감지 → 즉시 MatchingPage로 이동
+    ref.listen<TableModel?>(currentTableProvider, (previous, next) {
+      if (previous == null && next != null) {
+        final nav = navigatorKey.currentState;
+        if (nav == null) return;
+        // 기존 스택 정리 후 MatchingPage push
+        nav.popUntil((route) => route.isFirst);
+        nav.push(
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                const MatchingPage(),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              return SlideTransition(
+                position: Tween(
+                  begin: const Offset(0.0, 1.0),
+                  end: Offset.zero,
+                ).chain(CurveTween(curve: Curves.easeOutCubic)).animate(animation),
+                child: child,
+              );
+            },
+            transitionDuration: const Duration(milliseconds: 400),
+          ),
+        );
+      }
     });
 
     final authStatus = ref.watch(currentAuthStatusProvider);
@@ -86,15 +152,18 @@ class _MyAppState extends ConsumerState<MyApp> {
     if (status == _previousStatus) return;
     print('[AUTH] 상태 변경: $_previousStatus → $status');
 
-    // 인증 성공 → WebSocket 연결 + 내 테이블 동기화
+    // 인증 성공
     if (status == AuthStatus.authenticated) {
-      print('[AUTH] WebSocket 연결 시도');
-      WebSocketService().connect().then((_) async {
-        final table = await ApiService().getMyTable();
-        ref.read(currentTableProvider.notifier).update(table);
-        ref.read(tablesProvider); // 브로드캐스트 리스너 활성화
-        print('[AUTH] 내 테이블 동기화: ${table?.id ?? 'null'}');
-      });
+      // Fix 6: 초기 연결에서 이미 처리한 경우 스킵
+      if (_initialConnectDone) {
+        _initialConnectDone = false;
+      } else {
+        print('[AUTH] WebSocket 연결 시도');
+        WebSocketService().connect().then((_) {
+          ref.read(tableRepositoryProvider).refresh();
+          print('[AUTH] 테이블 동기화 완료');
+        });
+      }
     }
 
     // 연결 끊김 (일시적) → 데이터 유지, 재연결 대기
@@ -115,10 +184,9 @@ class _MyAppState extends ConsumerState<MyApp> {
     if (_previousStatus == AuthStatus.connectionLost &&
         status == AuthStatus.authenticated) {
       print('[AUTH] 연결 복구 → WebSocket 재연결 + 동기화');
-      WebSocketService().connect().then((_) async {
-        final table = await ApiService().getMyTable();
-        ref.read(currentTableProvider.notifier).update(table);
-        print('[AUTH] 재연결 후 테이블 동기화: ${table?.id ?? 'null'}');
+      WebSocketService().connect().then((_) {
+        ref.read(tableRepositoryProvider).refresh();
+        print('[AUTH] 재연결 후 테이블 동기화 완료');
       });
     }
 
@@ -129,8 +197,8 @@ class _MyAppState extends ConsumerState<MyApp> {
     // WebSocket 연결 종료
     WebSocketService().disconnect();
 
-    // 테이블 상태 초기화 (Riverpod)
-    ref.read(currentTableProvider.notifier).clear();
+    // 테이블 상태 초기화
+    ref.read(tableRepositoryProvider).clearCurrentTable();
 
     final context = navigatorKey.currentContext;
     if (context == null) return;

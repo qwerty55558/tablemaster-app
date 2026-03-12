@@ -14,7 +14,10 @@ class TableModel {
   final String? deviceName;
   final TableStatus status;
   final int? guestCount;
+  final int? femaleCount;
+  final int? maleCount;
   final String? location;
+  final bool isChatEnabled;
   final bool isChatting;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -25,7 +28,10 @@ class TableModel {
     this.deviceName,
     required this.status,
     this.guestCount,
+    this.femaleCount,
+    this.maleCount,
     this.location,
+    this.isChatEnabled = false,
     this.isChatting = false,
     this.createdAt,
     this.updatedAt,
@@ -38,13 +44,16 @@ class TableModel {
       deviceName: json['deviceName'] as String?,
       status: _parseStatus(json['status'] as String?),
       guestCount: json['guestCount'] as int?,
+      femaleCount: json['femaleCount'] as int?,
+      maleCount: json['maleCount'] as int?,
       location: json['location'] as String?,
+      isChatEnabled: json['isChatEnabled'] as bool? ?? false,
       isChatting: json['isChatting'] as bool? ?? false,
       createdAt: json['createdAt'] != null
-          ? DateTime.parse(json['createdAt'] as String)
+          ? _parseUtc(json['createdAt'] as String)
           : null,
       updatedAt: json['updatedAt'] != null
-          ? DateTime.parse(json['updatedAt'] as String)
+          ? _parseUtc(json['updatedAt'] as String)
           : null,
     );
   }
@@ -56,11 +65,24 @@ class TableModel {
       'deviceName': deviceName,
       'status': status.name,
       'guestCount': guestCount,
+      'femaleCount': femaleCount,
+      'maleCount': maleCount,
       'location': location,
+      'isChatEnabled': isChatEnabled,
       'isChatting': isChatting,
       'createdAt': createdAt?.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
     };
+  }
+
+  /// 서버 시간을 UTC로 파싱 후 로컬 변환
+  static DateTime _parseUtc(String dateStr) {
+    final parsed = DateTime.parse(dateStr);
+    // 이미 Z 또는 +offset이 포함되어 있으면 그대로, 아니면 UTC로 간주
+    return parsed.isUtc ? parsed.toLocal() : DateTime.utc(
+      parsed.year, parsed.month, parsed.day,
+      parsed.hour, parsed.minute, parsed.second, parsed.millisecond,
+    ).toLocal();
   }
 
   static TableStatus _parseStatus(String? status) {
@@ -86,7 +108,10 @@ class TableModel {
     String? deviceName,
     TableStatus? status,
     int? guestCount,
+    int? femaleCount,
+    int? maleCount,
     String? location,
+    bool? isChatEnabled,
     bool? isChatting,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -97,7 +122,10 @@ class TableModel {
       deviceName: deviceName ?? this.deviceName,
       status: status ?? this.status,
       guestCount: guestCount ?? this.guestCount,
+      femaleCount: femaleCount ?? this.femaleCount,
+      maleCount: maleCount ?? this.maleCount,
       location: location ?? this.location,
+      isChatEnabled: isChatEnabled ?? this.isChatEnabled,
       isChatting: isChatting ?? this.isChatting,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

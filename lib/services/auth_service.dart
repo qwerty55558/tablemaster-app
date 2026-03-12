@@ -77,6 +77,7 @@ class AuthService {
   AuthStatus _status = AuthStatus.initializing;
   String? _errorMessage;
   int? _pendingTtl; // 등록 대기 TTL (초)
+  Completer<bool>? _refreshLock;
   Timer? _pendingPollTimer; // pending 상태 polling
 
   // 상태 변경 스트림
@@ -137,7 +138,6 @@ class AuthService {
 
     if (kIsWeb) {
       // 웹: UUID 생성하여 사용
-      final webInfo = await deviceInfo.webBrowserInfo;
       // 브라우저 정보 기반 + UUID로 고유 ID 생성
       deviceId = 'web_${const Uuid().v4()}';
     } else {
@@ -411,8 +411,24 @@ class AuthService {
     }
   }
 
-  /// 토큰 갱신
+  /// 토큰 갱신 (동시 호출 시 하나만 실행)
   Future<bool> refreshAccessToken() async {
+    if (_refreshLock != null) return _refreshLock!.future;
+
+    _refreshLock = Completer<bool>();
+    try {
+      final result = await _doRefreshAccessToken();
+      _refreshLock!.complete(result);
+      return result;
+    } catch (e) {
+      _refreshLock!.complete(false);
+      return false;
+    } finally {
+      _refreshLock = null;
+    }
+  }
+
+  Future<bool> _doRefreshAccessToken() async {
     if (_refreshToken == null) return false;
 
     try {

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:stomp_dart_client/stomp_dart_client.dart';
 import '../config/api_config.dart';
+import '../models/chat_model.dart';
+import '../models/table_delta_event.dart';
 import '../models/table_model.dart';
 import 'api_service.dart';
 
@@ -24,12 +26,10 @@ class WebSocketService {
       StreamController<WebSocketConnectionResult>.broadcast();
   final _deviceStreamController =
       StreamController<Map<String, dynamic>>.broadcast();
-  final _tablesStreamController = StreamController<List<TableModel>>.broadcast();
+  final _tablesStreamController = StreamController<TableDeltaEvent>.broadcast();
   final _notificationStreamController =
       StreamController<Map<String, dynamic>>.broadcast();
-
-  // 테이블 목록 상태 (스냅샷 전략)
-  List<TableModel> _tables = [];
+  final _chatStreamController = StreamController<ChatEvent>.broadcast();
 
   bool _isConnected = false;
   bool _isConnecting = false;
@@ -40,6 +40,9 @@ class WebSocketService {
   Completer<WebSocketConnectionResult>? _connectCompleter;
   Completer<void>? _syncCompleter;
 
+  // 채팅방 동적 구독 (roomId → unsubscribe)
+  final Map<int, StompUnsubscribe> _chatRoomSubscriptions = {};
+
   // Singleton
   static final WebSocketService _instance = WebSocketService._internal();
   factory WebSocketService() => _instance;
@@ -48,10 +51,10 @@ class WebSocketService {
   Stream<WebSocketConnectionResult> get connectionResultStream =>
       _connectionResultController.stream;
   Stream<Map<String, dynamic>> get deviceStream => _deviceStreamController.stream;
-  Stream<List<TableModel>> get tablesStream => _tablesStreamController.stream;
+  Stream<TableDeltaEvent> get tablesStream => _tablesStreamController.stream;
   Stream<Map<String, dynamic>> get notificationStream =>
       _notificationStreamController.stream;
-  List<TableModel> get tables => List.unmodifiable(_tables);
+  Stream<ChatEvent> get chatStream => _chatStreamController.stream;
   bool get isConnected => _isConnected;
   String? get lastConnectionError => _lastConnectionError;
 
@@ -122,7 +125,6 @@ class WebSocketService {
     print('[WS] STOMP 연결 성공');
     _isConnected = true;
     _isConnecting = false;
-    _reconnectAttempts = 0;
 
     final result = WebSocketConnectionResult.success;
     _connectionResultController.add(result);
@@ -154,6 +156,12 @@ class WebSocketService {
     _stompClient!.subscribe(
       destination: '/user/queue/notifications',
       callback: _onNotificationMessage,
+    );
+
+    print('[WS] /user/queue/chat 구독');
+    _stompClient!.subscribe(
+      destination: '/user/queue/chat',
+      callback: _onChatMessage,
     );
 
     // 연결 후 동기화 요청
@@ -290,6 +298,63 @@ class WebSocketService {
     );
   }
 
+  /// 채팅 요청
+  void sendChatRequest(String targetTableId) {
+    print('[WS] 채팅 요청: $targetTableId');
+    _stompClient?.send(
+      destination: '/app/chat/request',
+      body: jsonEncode({'targetTableId': targetTableId}),
+    );
+  }
+
+  /// 채팅 수락
+  void sendChatAccept(String targetTableId) {
+    print('[WS] 채팅 수락: $targetTableId');
+    _stompClient?.send(
+      destination: '/app/chat/accept',
+      body: jsonEncode({'targetTableId': targetTableId}),
+    );
+  }
+
+  /// 채팅 거절
+  void sendChatReject(String targetTableId) {
+    print('[WS] 채팅 거절: $targetTableId');
+    _stompClient?.send(
+      destination: '/app/chat/reject',
+      body: jsonEncode({'targetTableId': targetTableId}),
+    );
+  }
+
+  /// 채팅 퇴장
+  void sendChatLeave(int roomId) {
+    print('[WS] 채팅 퇴장: roomId=$roomId');
+    _stompClient?.send(
+      destination: '/app/chat/leave',
+      body: jsonEncode({'roomId': roomId}),
+    );
+  }
+
+  /// 메시지 전송
+  void sendChatMessage(int roomId, String content) {
+    print('[WS] 메시지 전송: roomId=$roomId');
+    _stompClient?.send(
+      destination: '/app/chat/send',
+      body: jsonEncode({'roomId': roomId, 'content': content}),
+    );
+  }
+
+  /// 선물 전송
+  void sendChatGift(int roomId, String giftType) {
+    print('[WS] 선물 전송: roomId=$roomId');
+    _stompClient?.send(
+      destination: '/app/chat/gift',
+      body: jsonEncode({
+        'roomId': roomId,
+        'giftType': giftType,
+      }),
+    );
+  }
+
   /// 디바이스 메시지 수신 처리
   void _onDeviceMessage(StompFrame frame) {
     print('[WS] 디바이스 메시지 수신: ${frame.body}');
@@ -307,77 +372,57 @@ class WebSocketService {
     }
   }
 
-  /// 테이블 목록 메시지 수신 처리 (스냅샷 전략)
+  /// 테이블 메시지 수신 → raw 델타 이벤트 emit (상태 관리는 Riverpod에서)
   void _onTablesMessage(StompFrame frame) {
-    print('[WS] 테이블 목록 메시지 수신: ${frame.body}');
-
     if (frame.body == null) return;
 
     try {
       final data = jsonDecode(frame.body!) as Map<String, dynamic>;
       final type = data['type'] as String?;
-      print('[WS] 테이블 메시지 타입: $type');
+      print('[WS] 테이블 메시지: $type');
 
       switch (type) {
         case 'TABLES_SNAPSHOT':
-          // 전체 스냅샷 - sync 응답
           final tablesJson = data['data'] as List<dynamic>?;
           if (tablesJson != null) {
-            _tables = tablesJson
+            final tables = tablesJson
                 .map((json) => TableModel.fromJson(json as Map<String, dynamic>))
                 .toList();
-            _tablesStreamController.add(List.unmodifiable(_tables));
-            print('[WS] TABLES_SNAPSHOT: ${_tables.length}개 테이블');
+            _tablesStreamController.add(TableDeltaEvent.snapshot(tables));
+            print('[WS] TABLES_SNAPSHOT: ${tables.length}개 테이블');
 
-            // 동기화 완료 알림
+            // 연결 안정 확인 → backoff 리셋
+            _reconnectAttempts = 0;
+
             if (_syncCompleter != null && !_syncCompleter!.isCompleted) {
               _syncCompleter!.complete();
             }
-
-            // 스냅샷 검증은 Riverpod 쪽(matching_page)에서 처리
           }
           break;
 
         case 'TABLE_ADDED':
-          // 테이블 추가 (이미 존재하면 갱신)
           final tableJson = data['data'] as Map<String, dynamic>?;
           if (tableJson != null) {
-            final newTable = TableModel.fromJson(tableJson);
-            final existingIndex = _tables.indexWhere((t) => t.id == newTable.id);
-            if (existingIndex != -1) {
-              _tables[existingIndex] = newTable;
-            } else {
-              _tables.add(newTable);
-            }
-            _tablesStreamController.add(List.unmodifiable(_tables));
-            print('[WS] TABLE_ADDED: ${newTable.id} (name: ${newTable.name})');
+            final table = TableModel.fromJson(tableJson);
+            _tablesStreamController.add(TableDeltaEvent.added(table));
+            print('[WS] TABLE_ADDED: ${table.id}');
           }
           break;
 
         case 'TABLE_REMOVED':
-          // 테이블 삭제 (브로드캐스트 델타 - 캐시에서만 제거)
           final tableId = data['id'] as String?;
           if (tableId != null) {
-            _tables.removeWhere((t) => t.id == tableId);
-            _tablesStreamController.add(List.unmodifiable(_tables));
+            _tablesStreamController.add(TableDeltaEvent.removed(tableId));
             print('[WS] TABLE_REMOVED: $tableId');
           }
           break;
 
         case 'TABLE_UPDATED':
-          // 테이블 업데이트
           final tableJson = data['data'] as Map<String, dynamic>?;
           if (tableJson != null) {
-            final updatedTable = TableModel.fromJson(tableJson);
-            final index = _tables.indexWhere((t) => t.id == updatedTable.id);
-            if (index != -1) {
-              _tables[index] = updatedTable;
-            } else {
-              _tables.add(updatedTable);
-            }
-            _tablesStreamController.add(List.unmodifiable(_tables));
-
-            print('[WS] TABLE_UPDATED: ${updatedTable.id}');
+            final table = TableModel.fromJson(tableJson);
+            _tablesStreamController.add(TableDeltaEvent.updated(table));
+            print('[WS] TABLE_UPDATED: ${table.id}');
           }
           break;
 
@@ -385,7 +430,7 @@ class WebSocketService {
           print('[WS] 알 수 없는 테이블 메시지: $type');
       }
     } catch (e) {
-      print('[WS] 테이블 목록 메시지 파싱 에러: $e');
+      print('[WS] 테이블 메시지 파싱 에러: $e');
     }
   }
 
@@ -402,7 +447,6 @@ class WebSocketService {
 
       if (type == 'DEVICE_DELETED') {
         print('[WS] DEVICE_DELETED 수신');
-        _tables.clear();
         disconnect();
         ApiService().authService.handleDeviceDeleted();
         return;
@@ -414,11 +458,78 @@ class WebSocketService {
     }
   }
 
+  /// 채팅 메시지 수신 처리 (/user/queue/chat)
+  void _onChatMessage(StompFrame frame) {
+    print('[WS] 채팅 메시지 수신: ${frame.body}');
+    if (frame.body == null) return;
+
+    try {
+      final data = jsonDecode(frame.body!) as Map<String, dynamic>;
+      final event = ChatEvent.fromJson(data);
+      print('[WS] 채팅 이벤트 타입: ${event.type}');
+      _chatStreamController.add(event);
+    } catch (e) {
+      print('[WS] 채팅 메시지 파싱 에러: $e');
+    }
+  }
+
+  /// 채팅방 메시지 브로드캐스트 수신 처리 (/topic/chat.room.{roomId})
+  void _onChatRoomMessage(StompFrame frame) {
+    print('[WS] 채팅방 메시지 수신: ${frame.body}');
+    if (frame.body == null) return;
+
+    try {
+      final data = jsonDecode(frame.body!) as Map<String, dynamic>;
+      // room broadcast는 항상 chatMessage 타입
+      final message = ChatMessage.fromJson(data);
+      final event = ChatEvent(
+        type: ChatEventType.chatMessage,
+        message: message,
+      );
+      _chatStreamController.add(event);
+    } catch (e) {
+      print('[WS] 채팅방 메시지 파싱 에러: $e');
+    }
+  }
+
+  /// 채팅방 동적 구독
+  void subscribeToChatRoom(int roomId) {
+    if (_chatRoomSubscriptions.containsKey(roomId)) return;
+    final destination = '/topic/chat.room.$roomId';
+    print('[WS] $destination 구독');
+    final unsub = _stompClient?.subscribe(
+      destination: destination,
+      callback: _onChatRoomMessage,
+    );
+    if (unsub != null) {
+      _chatRoomSubscriptions[roomId] = unsub;
+    }
+  }
+
+  /// 특정 채팅방 구독 해제
+  void unsubscribeFromChatRoom(int roomId) {
+    final unsub = _chatRoomSubscriptions.remove(roomId);
+    if (unsub != null) {
+      print('[WS] 채팅방 구독 해제: roomId=$roomId');
+      unsub(unsubscribeHeaders: {});
+    }
+  }
+
+  /// 모든 채팅방 구독 해제
+  void unsubscribeFromAllChatRooms() {
+    for (final entry in _chatRoomSubscriptions.entries) {
+      print('[WS] 채팅방 구독 해제: roomId=${entry.key}');
+      entry.value(unsubscribeHeaders: {});
+    }
+    _chatRoomSubscriptions.clear();
+  }
+
   void dispose() {
     disconnect();
     _connectionResultController.close();
     _deviceStreamController.close();
     _tablesStreamController.close();
     _notificationStreamController.close();
+    _chatStreamController.close();
   }
 }

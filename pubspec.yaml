@@ -87,6 +87,7 @@ flutter:
     - .env
     - .env.development
     - .env.production
+    - .env.web
     - assets/videos/
 
 

@@ -3,6 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../services/websocket_service.dart';
+import '../repositories/table_repository.dart';
+import '../repositories/chat_repository.dart';
+import '../models/chat_model.dart';
+import '../models/notification_model.dart';
 import '../models/table_model.dart';
 
 // ============================================================
@@ -60,13 +64,6 @@ final wsConnectionProvider = StreamProvider<WebSocketConnectionResult>((ref) {
   return wsService.connectionResultStream;
 });
 
-/// 테이블 목록 스트림 Provider (WebSocket)
-final tablesStreamProvider = StreamProvider<List<TableModel>>((ref) {
-  final wsService = ref.watch(webSocketServiceProvider);
-  return wsService.tablesStream;
-});
-
-
 /// 알림 스트림
 final notificationStreamProvider = StreamProvider<Map<String, dynamic>>((ref) {
   final wsService = ref.watch(webSocketServiceProvider);
@@ -74,108 +71,248 @@ final notificationStreamProvider = StreamProvider<Map<String, dynamic>>((ref) {
 });
 
 // ============================================================
-// Table State Providers (Riverpod = 단일 소스)
+// Repository Provider
 // ============================================================
 
-/// 테이블 목록 Provider (HTTP fallback + WebSocket 실시간)
-final tablesProvider = StateNotifierProvider<TablesNotifier, List<TableModel>>((ref) {
+/// TableRepository Provider (싱글톤, WS 델타 수신 + 상태 관리)
+final tableRepositoryProvider = Provider<TableRepository>((ref) {
   final apiService = ref.watch(apiServiceProvider);
   final wsService = ref.watch(webSocketServiceProvider);
-  return TablesNotifier(apiService, wsService, ref);
+  return TableRepository(apiService: apiService, wsService: wsService);
 });
 
-class TablesNotifier extends StateNotifier<List<TableModel>> {
-  final ApiService _apiService;
-  final WebSocketService _wsService;
-  final Ref _ref;
-  StreamSubscription? _wsSub;
+// ============================================================
+// Chat Repository Provider
+// ============================================================
 
-  TablesNotifier(this._apiService, this._wsService, this._ref) : super([]) {
+/// ChatRepository Provider (싱글톤, WS 채팅 이벤트 수신 + 상태 관리)
+final chatRepositoryProvider = Provider<ChatRepository>((ref) {
+  final wsService = ref.watch(webSocketServiceProvider);
+  return ChatRepository(wsService: wsService);
+});
+
+// ============================================================
+// Chat State Providers
+// ============================================================
+
+/// 전체 채팅방 목록 Provider (roomId → ChatRoom)
+final chatRoomsProvider =
+    StateNotifierProvider<_ChatRoomsNotifier, Map<int, ChatRoom>>((ref) {
+  final repo = ref.watch(chatRepositoryProvider);
+  return _ChatRoomsNotifier(repo);
+});
+
+class _ChatRoomsNotifier extends StateNotifier<Map<int, ChatRoom>> {
+  late final StreamSubscription<Map<int, ChatRoom>> _sub;
+
+  _ChatRoomsNotifier(ChatRepository repo) : super(repo.rooms) {
+    _sub = repo.roomsStream.listen((rooms) => state = rooms);
+  }
+
+  @override
+  void dispose() {
+    _sub.cancel();
+    super.dispose();
+  }
+}
+
+/// 현재 활성 채팅방 Provider
+final activeChatRoomProvider =
+    StateNotifierProvider<_ActiveChatRoomNotifier, ChatRoom?>((ref) {
+  final repo = ref.watch(chatRepositoryProvider);
+  return _ActiveChatRoomNotifier(repo);
+});
+
+class _ActiveChatRoomNotifier extends StateNotifier<ChatRoom?> {
+  late final StreamSubscription<ChatRoom?> _sub;
+
+  _ActiveChatRoomNotifier(ChatRepository repo) : super(repo.activeRoom) {
+    _sub = repo.activeRoomStream.listen((room) => state = room);
+  }
+
+  @override
+  void dispose() {
+    _sub.cancel();
+    super.dispose();
+  }
+}
+
+/// 수신된 채팅 요청 (수락/거절 대기)
+final pendingChatRequestProvider =
+    StateNotifierProvider<_PendingRequestNotifier, ChatEvent?>((ref) {
+  final repo = ref.watch(chatRepositoryProvider);
+  return _PendingRequestNotifier(repo);
+});
+
+class _PendingRequestNotifier extends StateNotifier<ChatEvent?> {
+  late final StreamSubscription<ChatEvent?> _sub;
+
+  _PendingRequestNotifier(ChatRepository repo) : super(repo.pendingRequest) {
+    _sub = repo.requestStream.listen((req) => state = req);
+  }
+
+  @override
+  void dispose() {
+    _sub.cancel();
+    super.dispose();
+  }
+}
+
+/// 채팅 토스트 이벤트 스트림 (거절, 실패, 에러)
+final chatToastStreamProvider = StreamProvider<ChatEvent>((ref) {
+  final repo = ref.watch(chatRepositoryProvider);
+  return repo.toastStream;
+});
+
+// ============================================================
+// Table State Providers (Repository 스트림 → StateNotifier 래핑)
+// ============================================================
+
+/// 테이블 목록 Provider
+final tablesProvider =
+    StateNotifierProvider<_TablesNotifier, List<TableModel>>((ref) {
+  final repo = ref.watch(tableRepositoryProvider);
+  return _TablesNotifier(repo);
+});
+
+class _TablesNotifier extends StateNotifier<List<TableModel>> {
+  late final StreamSubscription<List<TableModel>> _sub;
+
+  _TablesNotifier(TableRepository repo) : super(repo.tables) {
+    _sub = repo.tablesStream.listen((tables) => state = tables);
+  }
+
+  @override
+  void dispose() {
+    _sub.cancel();
+    super.dispose();
+  }
+}
+
+/// 현재 내 테이블 Provider
+final currentTableProvider =
+    StateNotifierProvider<_CurrentTableNotifier, TableModel?>((ref) {
+  final repo = ref.watch(tableRepositoryProvider);
+  return _CurrentTableNotifier(repo);
+});
+
+class _CurrentTableNotifier extends StateNotifier<TableModel?> {
+  late final StreamSubscription<TableModel?> _sub;
+
+  _CurrentTableNotifier(TableRepository repo) : super(repo.currentTable) {
+    _sub = repo.currentTableStream.listen((table) => state = table);
+  }
+
+  @override
+  void dispose() {
+    _sub.cancel();
+    super.dispose();
+  }
+}
+
+/// 선택된 테이블 ID (autoDispose로 페이지 이탈 시 초기화)
+final selectedTableIdProvider = StateProvider.autoDispose<String?>((ref) => null);
+
+/// 선택된 테이블 (tablesProvider에서 실시간 데이터 조회)
+final selectedTableProvider = Provider.autoDispose<TableModel?>((ref) {
+  final selectedId = ref.watch(selectedTableIdProvider);
+  if (selectedId == null) return null;
+  final tables = ref.watch(tablesProvider);
+  return tables.where((t) => t.id == selectedId).firstOrNull;
+});
+
+/// 내 테이블 선택 여부 Provider
+final isMyTableSelectedProvider = StateProvider.autoDispose<bool>((ref) => false);
+
+// ============================================================
+// Notification Providers
+// ============================================================
+
+/// 알림 목록 Provider
+final notificationsProvider =
+    StateNotifierProvider.autoDispose<NotificationsNotifier, List<NotificationModel>>((ref) {
+  final apiService = ref.watch(apiServiceProvider);
+  return NotificationsNotifier(apiService);
+});
+
+class NotificationsNotifier extends StateNotifier<List<NotificationModel>> {
+  final ApiService _apiService;
+
+  NotificationsNotifier(this._apiService) : super([]);
+
+  Future<void> fetch() async {
+    final notifications = await _apiService.getNotifications();
+    if (mounted) state = notifications;
+  }
+
+  Future<void> markRead(int id) async {
+    final success = await _apiService.markNotificationRead(id);
+    if (success && mounted) {
+      state = [
+        for (final n in state)
+          if (n.id == id)
+            NotificationModel(
+              id: n.id,
+              title: n.title,
+              body: n.body,
+              category: n.category,
+              data: n.data,
+              isRead: true,
+              createdAt: n.createdAt,
+            )
+          else
+            n,
+      ];
+    }
+  }
+
+  Future<void> markAllRead() async {
+    final success = await _apiService.markAllNotificationsRead();
+    if (success && mounted) {
+      state = [
+        for (final n in state)
+          NotificationModel(
+            id: n.id,
+            title: n.title,
+            body: n.body,
+            category: n.category,
+            data: n.data,
+            isRead: true,
+            createdAt: n.createdAt,
+          ),
+      ];
+    }
+  }
+}
+
+/// 읽지 않은 알림 개수 Provider
+final unreadCountProvider =
+    StateNotifierProvider.autoDispose<UnreadCountNotifier, int>((ref) {
+  final apiService = ref.watch(apiServiceProvider);
+  return UnreadCountNotifier(apiService);
+});
+
+class UnreadCountNotifier extends StateNotifier<int> {
+  final ApiService _apiService;
+
+  UnreadCountNotifier(this._apiService) : super(0) {
     _init();
   }
 
   Future<void> _init() async {
-    // 1. HTTP로 초기 데이터 fetch
-    final initialTables = await _apiService.getTables();
-    state = initialTables;
-
-    // 2. 브로드캐스트 스트림 구독 → 내 테이블 자동 동기화/삭제
-    _wsSub = _wsService.tablesStream.listen((tables) {
-      state = tables;
-
-      final currentTable = _ref.read(currentTableProvider);
-      final deviceId = _apiService.deviceId;
-
-      if (currentTable != null) {
-        final match = tables.where((t) => t.id == currentTable.id).firstOrNull;
-        if (match == null) {
-          // 브로드캐스트에서 삭제됨 → currentTable 초기화
-          _ref.read(currentTableProvider.notifier).clear();
-        } else if (match != currentTable) {
-          // 데이터 변경 → currentTable 갱신
-          _ref.read(currentTableProvider.notifier).update(match);
-        }
-      } else if (deviceId != null) {
-        // currentTable이 null인 상태에서 내 디바이스 테이블이 추가되면 자동 세팅
-        final myTable = tables.where((t) => t.id == deviceId).firstOrNull;
-        if (myTable != null) {
-          _ref.read(currentTableProvider.notifier).update(myTable);
-        }
-      }
-    });
+    final count = await _apiService.getUnreadCount();
+    if (mounted) state = count;
   }
 
-  void refresh() async {
-    final tables = await _apiService.getTables();
-    if (tables.isNotEmpty) {
-      state = tables;
-    }
-  }
-
-  @override
-  void dispose() {
-    _wsSub?.cancel();
-    super.dispose();
-  }
-}
-
-/// 현재 테이블 Provider (순수 상태 홀더)
-/// 갱신/삭제는 TablesNotifier 브로드캐스트에서 자동 처리
-/// DEVICE_DELETED만 직접 구독
-final currentTableProvider = StateNotifierProvider<CurrentTableNotifier, TableModel?>((ref) {
-  final wsService = ref.watch(webSocketServiceProvider);
-  return CurrentTableNotifier(wsService);
-});
-
-class CurrentTableNotifier extends StateNotifier<TableModel?> {
-  StreamSubscription? _deviceDeletedSub;
-
-  CurrentTableNotifier(WebSocketService wsService) : super(null) {
-    _deviceDeletedSub = wsService.notificationStream.listen((data) {
-      if (data['type'] == 'DEVICE_DELETED') {
-        print('[Provider] DEVICE_DELETED → currentTable 초기화');
-        state = null;
-      }
-    });
-  }
-
-  void update(TableModel? table) {
-    state = table;
+  Future<void> refresh() async {
+    final count = await _apiService.getUnreadCount();
+    if (mounted) state = count;
   }
 
   void clear() {
-    state = null;
-  }
-
-  @override
-  void dispose() {
-    _deviceDeletedSub?.cancel();
-    super.dispose();
+    if (mounted) state = 0;
   }
 }
-
-/// 선택된 테이블 Provider (autoDispose로 페이지 이탈 시 초기화)
-final selectedTableProvider = StateProvider.autoDispose<TableModel?>((ref) => null);
 
 // ============================================================
 // Setup Form State (StateNotifier)
@@ -320,16 +457,15 @@ class SetupFormNotifier extends StateNotifier<SetupFormState> {
     setLoading(true);
     try {
       final apiService = _ref.read(apiServiceProvider);
-      final table = await apiService.setupTable(
+      final success = await apiService.setupTable(
         tableId: state.tableName.trim(),
         location: state.selectedLocation!,
         guestCount: state.guestCount,
         femaleCount: state.femaleCount,
         maleCount: state.maleCount,
       );
-      // Riverpod으로 상태 관리
-      _ref.read(currentTableProvider.notifier).update(table);
-      return table != null;
+      // currentTable은 WS 브로드캐스트에서 자동 동기화
+      return success;
     } catch (e) {
       return false;
     } finally {
