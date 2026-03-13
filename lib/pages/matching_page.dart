@@ -171,6 +171,14 @@ class _MatchingPageState extends ConsumerState<MatchingPage> {
             icon = Icons.error;
             color = AppColors.error;
             break;
+          case ChatEventType.chatClosed:
+            title = '채팅 종료';
+            subtitle = event.reason == 'PARTICIPANT_DELETED'
+                ? '상대방 연결이 종료되었습니다'
+                : '상대방이 채팅방을 나갔습니다';
+            icon = Icons.exit_to_app;
+            color = AppColors.warning;
+            break;
           default:
             return;
         }

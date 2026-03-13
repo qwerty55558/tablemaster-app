@@ -57,7 +57,11 @@
       "Bash(find /Users/personal-ai/Projects/personal/tableProject/app -path \"*/stomp_dart_client*\" -name \"*.dart\" 2>/dev/null | head -5)",
       "Bash(find /Users/personal-ai/Projects/personal/tableProject/app/lib/repositories -type f -name \"*.dart\" 2>/dev/null | head -10)",
       "Bash(gh auth:*)",
-      "Bash(gh repo:*)"
+      "Bash(gh repo:*)",
+      "Bash(claude --version 2>/dev/null || echo \"cannot check version\")",
+      "Bash(mkdir -p /Users/personal-ai/Projects/personal/tableProject/app/.claude/skills/deploy-fe && mv /Users/personal-ai/Projects/personal/tableProject/app/.claude/skills/deploy-fe.md /Users/personal-ai/Projects/personal/tableProject/app/.claude/skills/deploy-fe/SKILL.md)",
+      "Bash(colima list:*)",
+      "Bash(colima stop:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

@@ -5,6 +5,8 @@ enum ChatEventType {
   chatRejected,
   chatRequestFailed,
   chatError,
+  chatClosed,
+  chatRoomsSnapshot,
   chatMessage,
 }
 
@@ -18,6 +20,7 @@ class ChatEvent {
   final String? partnerTableName;
   final String? reason;
   final ChatMessage? message;
+  final List<ChatRoom>? rooms;
 
   const ChatEvent({
     required this.type,
@@ -28,6 +31,7 @@ class ChatEvent {
     this.partnerTableName,
     this.reason,
     this.message,
+    this.rooms,
   });
 
   factory ChatEvent.fromJson(Map<String, dynamic> json) {
@@ -39,6 +43,16 @@ class ChatEvent {
       message = ChatMessage.fromJson(json);
     }
 
+    List<ChatRoom>? rooms;
+    if (type == ChatEventType.chatRoomsSnapshot) {
+      final roomsJson = json['rooms'] as List<dynamic>?;
+      if (roomsJson != null) {
+        rooms = roomsJson
+            .map((r) => ChatRoom.fromJson(r as Map<String, dynamic>))
+            .toList();
+      }
+    }
+
     return ChatEvent(
       type: type,
       fromDeviceId: json['fromDeviceId'] as String?,
@@ -48,6 +62,7 @@ class ChatEvent {
       partnerTableName: json['partnerTableName'] as String?,
       reason: json['reason'] as String?,
       message: message,
+      rooms: rooms,
     );
   }
 
@@ -63,6 +78,10 @@ class ChatEvent {
         return ChatEventType.chatRequestFailed;
       case 'CHAT_ERROR':
         return ChatEventType.chatError;
+      case 'CHAT_CLOSED':
+        return ChatEventType.chatClosed;
+      case 'CHAT_ROOMS_SNAPSHOT':
+        return ChatEventType.chatRoomsSnapshot;
       default:
         return ChatEventType.chatMessage;
     }
@@ -119,6 +138,18 @@ class ChatRoom {
     required this.partnerTableName,
     this.messages = const [],
   });
+
+  factory ChatRoom.fromJson(Map<String, dynamic> json) {
+    final messagesJson = json['messages'] as List<dynamic>? ?? [];
+    return ChatRoom(
+      roomId: json['roomId'] as int,
+      partnerDeviceId: json['partnerDeviceId'] as String? ?? '',
+      partnerTableName: json['partnerTableName'] as String? ?? '',
+      messages: messagesJson
+          .map((m) => ChatMessage.fromJson(m as Map<String, dynamic>))
+          .toList(),
+    );
+  }
 
   ChatRoom copyWith({
     int? roomId,

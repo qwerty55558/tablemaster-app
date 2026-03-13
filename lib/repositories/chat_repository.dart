@@ -90,6 +90,42 @@ class ChatRepository {
         _toastController.add(event);
         break;
 
+      case ChatEventType.chatRoomsSnapshot:
+        final snapshotRooms = event.rooms;
+        if (snapshotRooms != null) {
+          // 기존 구독 정리
+          _wsService.unsubscribeFromAllChatRooms();
+          _rooms.clear();
+
+          for (final room in snapshotRooms) {
+            _rooms[room.roomId] = room;
+            _wsService.subscribeToChatRoom(room.roomId);
+          }
+          _roomsController.add(rooms);
+
+          // 활성 방 복원: 기존 활성 방이 유효하면 유지, 아니면 첫 번째 방
+          if (_activeRoomId == null || !_rooms.containsKey(_activeRoomId)) {
+            _activeRoomId = _rooms.isNotEmpty ? _rooms.keys.first : null;
+          }
+          _activeRoomController.add(activeRoom);
+        }
+        break;
+
+      case ChatEventType.chatClosed:
+        final roomId = event.roomId;
+        if (roomId != null) {
+          _wsService.unsubscribeFromChatRoom(roomId);
+          _rooms.remove(roomId);
+          _roomsController.add(rooms);
+
+          if (_activeRoomId == roomId) {
+            _activeRoomId = _rooms.isNotEmpty ? _rooms.keys.first : null;
+            _activeRoomController.add(activeRoom);
+          }
+        }
+        _toastController.add(event);
+        break;
+
       case ChatEventType.chatMessage:
         final msg = event.message;
         if (msg == null) break;
