@@ -127,6 +127,24 @@ class ChatRepository {
         break;
 
       case ChatEventType.chatWarning:
+        // 경고 메시지를 채팅방 메시지 리스트에 시스템 메시지로 추가
+        final warningRoomId = event.roomId;
+        if (warningRoomId != null && _rooms.containsKey(warningRoomId)) {
+          final warningMsg = ChatMessage(
+            senderDeviceId: '',
+            senderTableName: '',
+            content: event.warningMessage ?? event.reason ?? '경고가 발생했습니다',
+            messageType: 'WARNING',
+            timestamp: DateTime.now(),
+          );
+          _rooms[warningRoomId] = _rooms[warningRoomId]!.copyWith(
+            messages: [..._rooms[warningRoomId]!.messages, warningMsg],
+          );
+          _roomsController.add(rooms);
+          if (_activeRoomId == warningRoomId) {
+            _activeRoomController.add(_rooms[warningRoomId]);
+          }
+        }
         _toastController.add(event);
         break;
 
@@ -228,13 +246,20 @@ class ChatRepository {
   }
 
   void leaveChat(int roomId) {
-    _wsService.sendChatLeave(roomId);
+    final room = _rooms[roomId];
+    if (room == null) return;
+    // BAN 상태에서는 나가기 차단 (MUTE는 퇴장 가능)
+    if (room.isBanned) return;
+
+    // room topic 구독 먼저 해제 (LEAVE 브로드캐스트 중복 수신 방지)
     _wsService.unsubscribeFromChatRoom(roomId);
+    // 서버에 퇴장 요청
+    _wsService.sendChatLeave(roomId);
+    // 로컬 상태 즉시 정리 (서버 CHAT_CLOSED 응답 전에 UI 반영)
     _rooms.remove(roomId);
     _roomsController.add(rooms);
 
     if (_activeRoomId == roomId) {
-      // 다른 방이 남아있으면 그쪽으로, 없으면 null
       _activeRoomId = _rooms.isNotEmpty ? _rooms.keys.first : null;
       _activeRoomController.add(activeRoom);
     }

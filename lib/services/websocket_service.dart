@@ -132,6 +132,9 @@ class WebSocketService {
       _connectCompleter!.complete(result);
     }
 
+    // 재연결 시 stale 채팅방 구독 정리
+    _chatRoomSubscriptions.clear();
+
     // 도메인별 구독 채널
     print('[WS] /user/queue/device 구독');
     _stompClient!.subscribe(
@@ -214,6 +217,8 @@ class WebSocketService {
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _reconnectAttempts = 0;
+    // 채팅방 구독 참조 정리 (연결 끊기면 무효)
+    _chatRoomSubscriptions.clear();
     _stompClient?.deactivate();
     _stompClient = null;
     _isConnected = false;
@@ -474,19 +479,31 @@ class WebSocketService {
   }
 
   /// 채팅방 메시지 브로드캐스트 수신 처리 (/topic/chat.room.{roomId})
+  /// 서버에서 MESSAGE, GIFT, LEAVE 타입을 보냄
   void _onChatRoomMessage(StompFrame frame) {
     print('[WS] 채팅방 메시지 수신: ${frame.body}');
     if (frame.body == null) return;
 
     try {
       final data = jsonDecode(frame.body!) as Map<String, dynamic>;
-      // room broadcast는 항상 chatMessage 타입
-      final message = ChatMessage.fromJson(data);
-      final event = ChatEvent(
-        type: ChatEventType.chatMessage,
-        message: message,
-      );
-      _chatStreamController.add(event);
+      final type = data['type'] as String? ?? data['messageType'] as String?;
+
+      if (type == 'LEAVE' || type == 'CHAT_CLOSED') {
+        // 퇴장 이벤트 → chatClosed로 변환
+        final event = ChatEvent(
+          type: ChatEventType.chatClosed,
+          roomId: data['roomId'] as int?,
+        );
+        _chatStreamController.add(event);
+      } else {
+        // MESSAGE, GIFT 등 → 일반 채팅 메시지
+        final message = ChatMessage.fromJson(data);
+        final event = ChatEvent(
+          type: ChatEventType.chatMessage,
+          message: message,
+        );
+        _chatStreamController.add(event);
+      }
     } catch (e) {
       print('[WS] 채팅방 메시지 파싱 에러: $e');
     }
@@ -519,7 +536,11 @@ class WebSocketService {
   void unsubscribeFromAllChatRooms() {
     for (final entry in _chatRoomSubscriptions.entries) {
       print('[WS] 채팅방 구독 해제: roomId=${entry.key}');
-      entry.value(unsubscribeHeaders: {});
+      try {
+        entry.value(unsubscribeHeaders: {});
+      } catch (_) {
+        // 연결 끊긴 후 stale 구독 무시
+      }
     }
     _chatRoomSubscriptions.clear();
   }

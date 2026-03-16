@@ -19,6 +19,10 @@ class TableModel {
   final String? location;
   final bool isChatEnabled;
   final bool isChatting;
+  final int? chatRoomId;
+  final String? chatSanctionType;
+  final bool isChatMuted;
+  final DateTime? chatSanctionExpiresAt;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -33,6 +37,10 @@ class TableModel {
     this.location,
     this.isChatEnabled = false,
     this.isChatting = false,
+    this.chatRoomId,
+    this.chatSanctionType,
+    this.isChatMuted = false,
+    this.chatSanctionExpiresAt,
     this.createdAt,
     this.updatedAt,
   });
@@ -49,6 +57,12 @@ class TableModel {
       location: json['location'] as String?,
       isChatEnabled: json['isChatEnabled'] as bool? ?? false,
       isChatting: json['isChatting'] as bool? ?? false,
+      chatRoomId: json['chatRoomId'] as int?,
+      chatSanctionType: json['chatSanctionType'] as String?,
+      isChatMuted: json['isChatMuted'] as bool? ?? false,
+      chatSanctionExpiresAt: json['chatSanctionExpiresAt'] != null
+          ? _parseUtc(json['chatSanctionExpiresAt'] as String)
+          : null,
       createdAt: json['createdAt'] != null
           ? _parseUtc(json['createdAt'] as String)
           : null,
@@ -70,6 +84,10 @@ class TableModel {
       'location': location,
       'isChatEnabled': isChatEnabled,
       'isChatting': isChatting,
+      'chatRoomId': chatRoomId,
+      'chatSanctionType': chatSanctionType,
+      'isChatMuted': isChatMuted,
+      'chatSanctionExpiresAt': chatSanctionExpiresAt?.toIso8601String(),
       'createdAt': createdAt?.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
     };
@@ -113,6 +131,10 @@ class TableModel {
     String? location,
     bool? isChatEnabled,
     bool? isChatting,
+    int? chatRoomId,
+    String? chatSanctionType,
+    bool? isChatMuted,
+    DateTime? chatSanctionExpiresAt,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -127,6 +149,10 @@ class TableModel {
       location: location ?? this.location,
       isChatEnabled: isChatEnabled ?? this.isChatEnabled,
       isChatting: isChatting ?? this.isChatting,
+      chatRoomId: chatRoomId ?? this.chatRoomId,
+      chatSanctionType: chatSanctionType ?? this.chatSanctionType,
+      isChatMuted: isChatMuted ?? this.isChatMuted,
+      chatSanctionExpiresAt: chatSanctionExpiresAt ?? this.chatSanctionExpiresAt,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

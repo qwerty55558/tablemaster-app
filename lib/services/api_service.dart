@@ -4,6 +4,7 @@ import '../models/notification_model.dart';
 import '../models/table_model.dart';
 import 'auth_service.dart';
 import 'http_client.dart';
+import 'server_time.dart';
 
 /// API 서비스 - 순수 HTTP 통신만 담당 (상태 저장 X)
 class ApiService {
@@ -36,6 +37,9 @@ class ApiService {
       final response = await _client
           .get(Uri.parse('${ApiConfig.baseUrl}${ApiConfig.tables}'))
           .timeout(const Duration(seconds: 10));
+
+      // 서버 시간 동기화 (Date 헤더)
+      ServerTime.syncFromHttpDate(response.headers['date']);
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body) as List<dynamic>;

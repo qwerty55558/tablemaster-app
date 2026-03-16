@@ -465,16 +465,17 @@ class _ChatSidebar extends StatelessWidget {
                     ],
                   ),
                 ),
-                GhostButton(
-                  density: ButtonDensity.icon,
-                  size: ButtonSize.small,
-                  onPressed: () => onLeaveRoom(room.roomId),
-                  child: const Icon(
-                    Icons.close,
-                    size: 14,
-                    color: AppColors.foregroundSubtle,
+                if (!room.isBanned)
+                  GhostButton(
+                    density: ButtonDensity.icon,
+                    size: ButtonSize.small,
+                    onPressed: () => onLeaveRoom(room.roomId),
+                    child: const Icon(
+                      Icons.close,
+                      size: 14,
+                      color: AppColors.foregroundSubtle,
+                    ),
                   ),
-                ),
               ],
             ),
           ),
@@ -632,7 +633,7 @@ class _ChatContentState extends State<_ChatContent> {
                   ),
                 ),
                 OutlineButton(
-                  onPressed: widget.onLeave,
+                  onPressed: widget.chatRoom.isBanned ? null : widget.onLeave,
                   size: ButtonSize.small,
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
@@ -670,6 +671,9 @@ class _ChatContentState extends State<_ChatContent> {
                     itemCount: messages.length,
                     itemBuilder: (context, index) {
                       final msg = messages[index];
+                      if (msg.messageType == 'WARNING') {
+                        return _WarningNotice(message: msg);
+                      }
                       final isMine = msg.senderDeviceId == widget.myDeviceId;
                       return _ChatBubble(
                         message: msg,
@@ -726,6 +730,64 @@ class _ChatContentState extends State<_ChatContent> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// 관리자 경고 알림 (채팅 내 시스템 메시지)
+class _WarningNotice extends StatelessWidget {
+  final ChatMessage message;
+
+  const _WarningNotice({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 320),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          decoration: BoxDecoration(
+            color: AppColors.foregroundSubtle.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    size: 14,
+                    color: AppColors.foregroundMuted.withValues(alpha: 0.7),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '관리자 경고',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.foregroundMuted.withValues(alpha: 0.7),
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                message.content,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: AppColors.foregroundMuted.withValues(alpha: 0.8),
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

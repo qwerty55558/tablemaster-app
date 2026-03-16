@@ -5,6 +5,7 @@ import '../models/notification_model.dart';
 import '../models/table_model.dart';
 import '../providers/providers.dart';
 import '../services/auth_service.dart';
+import '../services/server_time.dart';
 import '../services/websocket_service.dart';
 import '../theme/app_colors.dart';
 import 'chat_page.dart';
@@ -319,32 +320,28 @@ class _MatchingPageState extends ConsumerState<MatchingPage> {
               ),
               // 플로팅 채팅 아이콘
               if (chatRooms.isNotEmpty)
-                Positioned(
-                  right: 24,
-                  bottom: 24,
-                  child: _ChatFloatingButton(
-                    chatRoomCount: chatRooms.length,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        PageRouteBuilder(
-                          pageBuilder: (context, animation, secondaryAnimation) =>
-                              const ChatPage(),
-                          transitionsBuilder:
-                              (context, animation, secondaryAnimation, child) {
-                            return SlideTransition(
-                              position: Tween(
-                                begin: const Offset(1.0, 0.0),
-                                end: Offset.zero,
-                              ).chain(CurveTween(curve: Curves.easeOutCubic)).animate(animation),
-                              child: child,
-                            );
-                          },
-                          transitionDuration: const Duration(milliseconds: 300),
-                        ),
-                      );
-                    },
-                  ),
+                _DraggableChatButton(
+                  chatRoomCount: chatRooms.length,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      PageRouteBuilder(
+                        pageBuilder: (context, animation, secondaryAnimation) =>
+                            const ChatPage(),
+                        transitionsBuilder:
+                            (context, animation, secondaryAnimation, child) {
+                          return SlideTransition(
+                            position: Tween(
+                              begin: const Offset(1.0, 0.0),
+                              end: Offset.zero,
+                            ).chain(CurveTween(curve: Curves.easeOutCubic)).animate(animation),
+                            child: child,
+                          );
+                        },
+                        transitionDuration: const Duration(milliseconds: 300),
+                      ),
+                    );
+                  },
                 ),
             ],
           ),
@@ -354,66 +351,175 @@ class _MatchingPageState extends ConsumerState<MatchingPage> {
   }
 }
 
-/// 플로팅 채팅 버튼
-class _ChatFloatingButton extends StatelessWidget {
+/// 드래그 가능한 플로팅 채팅 버튼
+class _DraggableChatButton extends StatefulWidget {
   final int chatRoomCount;
   final VoidCallback onTap;
 
-  const _ChatFloatingButton({
+  const _DraggableChatButton({
     required this.chatRoomCount,
     required this.onTap,
   });
 
   @override
+  State<_DraggableChatButton> createState() => _DraggableChatButtonState();
+}
+
+class _DraggableChatButtonState extends State<_DraggableChatButton>
+    with SingleTickerProviderStateMixin {
+  static const _buttonSize = 56.0;
+  static const _edgeMargin = 12.0;
+
+  double _left = double.nan; // 초기값은 build에서 설정
+  double _top = double.nan;
+  bool _dragging = false;
+  bool _initialized = false;
+
+  late final AnimationController _snapController;
+  Animation<double>? _snapLeftAnim;
+  Animation<double>? _snapTopAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _snapController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    )..addListener(() {
+        setState(() {
+          if (_snapLeftAnim != null) _left = _snapLeftAnim!.value;
+          if (_snapTopAnim != null) _top = _snapTopAnim!.value;
+        });
+      });
+  }
+
+  @override
+  void dispose() {
+    _snapController.dispose();
+    super.dispose();
+  }
+
+  Size? _parentSize() {
+    final ro = context.findRenderObject()?.parent;
+    if (ro is RenderBox && ro.hasSize) return ro.size;
+    return null;
+  }
+
+  void _clamp(Size parent) {
+    _left = _left.clamp(_edgeMargin, parent.width - _buttonSize - _edgeMargin);
+    _top = _top.clamp(_edgeMargin, parent.height - _buttonSize - _edgeMargin);
+  }
+
+  /// 가장 가까운 좌/우 가장자리로 스냅
+  void _snapToEdge() {
+    final parent = _parentSize();
+    if (parent == null) return;
+
+    final center = _left + _buttonSize / 2;
+    final targetLeft = center < parent.width / 2
+        ? _edgeMargin
+        : parent.width - _buttonSize - _edgeMargin;
+
+    _snapLeftAnim = Tween(begin: _left, end: targetLeft).animate(
+      CurvedAnimation(parent: _snapController, curve: Curves.easeOutCubic),
+    );
+    _snapTopAnim = Tween(begin: _top, end: _top).animate(_snapController);
+    _snapController.forward(from: 0);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              color: AppColors.tableChatting,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.tableChatting.withValues(alpha: 0.4),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: const Icon(
-              Icons.chat_bubble,
-              color: Colors.white,
-              size: 24,
-            ),
+    // 초기 위치: 우측 하단
+    if (!_initialized) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final parent = _parentSize();
+        if (parent != null && !_initialized) {
+          setState(() {
+            _left = parent.width - _buttonSize - 24;
+            _top = parent.height - _buttonSize - 24;
+            _initialized = true;
+          });
+        }
+      });
+      // 아직 위치 미확정이면 기본 우하단
+      return Positioned(
+        right: 24,
+        bottom: 24,
+        child: _buildButton(),
+      );
+    }
+
+    return Positioned(
+      left: _left,
+      top: _top,
+      child: GestureDetector(
+        onPanStart: (_) => _dragging = true,
+        onPanUpdate: (details) {
+          setState(() {
+            _left += details.delta.dx;
+            _top += details.delta.dy;
+            final parent = _parentSize();
+            if (parent != null) _clamp(parent);
+          });
+        },
+        onPanEnd: (_) {
+          _snapToEdge();
+          Future.delayed(const Duration(milliseconds: 50), () => _dragging = false);
+        },
+        onTap: () {
+          if (!_dragging) widget.onTap();
+        },
+        child: _buildButton(),
+      ),
+    );
+  }
+
+  Widget _buildButton() {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          width: _buttonSize,
+          height: _buttonSize,
+          decoration: BoxDecoration(
+            color: AppColors.tableChatting,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.tableChatting.withValues(alpha: 0.4),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
-          if (chatRoomCount > 0)
-            Positioned(
-              right: -4,
-              top: -4,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: AppColors.error,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppColors.background, width: 2),
-                ),
-                child: Text(
-                  '$chatRoomCount',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
+          child: const Icon(
+            Icons.chat_bubble,
+            color: Colors.white,
+            size: 24,
+          ),
+        ),
+        if (widget.chatRoomCount > 0)
+          Positioned(
+            right: -4,
+            top: -4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppColors.error,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.background, width: 2),
+              ),
+              child: Text(
+                '${widget.chatRoomCount}',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
                 ),
               ),
             ),
-        ],
-      ),
+          ),
+      ],
     );
   }
 }
@@ -1277,7 +1383,7 @@ class _MainContent extends StatelessWidget {
   }
 
   String _formatElapsed(DateTime since) {
-    final diff = DateTime.now().difference(since);
+    final diff = ServerTime.now().difference(since);
     final hours = diff.inHours;
     final minutes = diff.inMinutes % 60;
 
@@ -1539,7 +1645,7 @@ class _MyTableContent extends ConsumerWidget {
   }
 
   String _formatElapsed(DateTime since) {
-    final diff = DateTime.now().difference(since);
+    final diff = ServerTime.now().difference(since);
     final hours = diff.inHours;
     final minutes = diff.inMinutes % 60;
 
@@ -1675,7 +1781,7 @@ class _NotificationItem extends StatelessWidget {
   }
 
   String _formatTime(DateTime time) {
-    final diff = DateTime.now().difference(time);
+    final diff = ServerTime.now().difference(time);
     if (diff.inMinutes < 1) return '방금 전';
     if (diff.inMinutes < 60) return '${diff.inMinutes}분 전';
     if (diff.inHours < 24) return '${diff.inHours}시간 전';
