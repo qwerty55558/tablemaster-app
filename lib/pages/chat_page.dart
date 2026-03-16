@@ -376,25 +376,64 @@ class _ChatSidebar extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: AppColors.tableChatting.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Center(
-                    child: Text(
-                      room.partnerTableName.isNotEmpty
-                          ? room.partnerTableName[0]
-                          : '?',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.tableChatting,
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: room.isSanctioned
+                            ? (room.isBanned
+                                ? AppColors.error.withValues(alpha: 0.15)
+                                : AppColors.warning.withValues(alpha: 0.15))
+                            : AppColors.tableChatting.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Center(
+                        child: Text(
+                          room.partnerTableName.isNotEmpty
+                              ? room.partnerTableName[0]
+                              : '?',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: room.isSanctioned
+                                ? (room.isBanned
+                                    ? AppColors.error
+                                    : AppColors.warning)
+                                : AppColors.tableChatting,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                    if (room.isSanctioned)
+                      Positioned(
+                        top: -4,
+                        right: -4,
+                        child: Container(
+                          width: 16,
+                          height: 16,
+                          decoration: BoxDecoration(
+                            color: room.isBanned
+                                ? AppColors.error
+                                : AppColors.warning,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: AppColors.backgroundSecondary,
+                              width: 2,
+                            ),
+                          ),
+                          child: Icon(
+                            room.isBanned
+                                ? Icons.block
+                                : Icons.volume_off,
+                            size: 8,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -497,6 +536,37 @@ class _ChatContentState extends State<_ChatContent> {
     _controller.clear();
   }
 
+  Widget _buildSanctionBanner({
+    required IconData icon,
+    required Color color,
+    required String text,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        border: Border(
+          top: BorderSide(color: color.withValues(alpha: 0.3), width: 1),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 8),
+          Text(
+            text,
+            style: TextStyle(fontSize: 13, color: color, fontWeight: FontWeight.w500),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatTime(DateTime dt) {
+    return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final messages = widget.chatRoom.messages;
@@ -543,11 +613,19 @@ class _ChatContentState extends State<_ChatContent> {
                         ),
                       ),
                       const SizedBox(height: 2),
-                      const Text(
-                        '채팅 중',
+                      Text(
+                        widget.chatRoom.isBanned
+                            ? '이용 제한됨'
+                            : widget.chatRoom.isMuted
+                                ? '뮤트됨'
+                                : '채팅 중',
                         style: TextStyle(
                           fontSize: 12,
-                          color: AppColors.tableChatting,
+                          color: widget.chatRoom.isBanned
+                              ? AppColors.error
+                              : widget.chatRoom.isMuted
+                                  ? AppColors.warning
+                                  : AppColors.tableChatting,
                         ),
                       ),
                     ],
@@ -601,37 +679,52 @@ class _ChatContentState extends State<_ChatContent> {
                   ),
           ),
 
-          // 하단 입력창
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: const BoxDecoration(
-              color: AppColors.backgroundSecondary,
-              border: Border(
-                top: BorderSide(color: AppColors.border, width: 1),
+          // 하단 입력창 / 제재 배너
+          if (widget.chatRoom.isBanned)
+            _buildSanctionBanner(
+              icon: Icons.block,
+              color: AppColors.error,
+              text: '관리자에 의해 채팅이 제한되었습니다',
+            )
+          else if (widget.chatRoom.isMuted)
+            _buildSanctionBanner(
+              icon: Icons.volume_off,
+              color: AppColors.warning,
+              text: widget.chatRoom.mutedUntil != null
+                  ? '뮤트 상태입니다 (해제: ${_formatTime(widget.chatRoom.mutedUntil!)})'
+                  : '뮤트 상태입니다',
+            )
+          else
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: const BoxDecoration(
+                color: AppColors.backgroundSecondary,
+                border: Border(
+                  top: BorderSide(color: AppColors.border, width: 1),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _controller,
+                      placeholder: const Text('메시지를 입력하세요...'),
+                      onSubmitted: (_) => _handleSend(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: PrimaryButton(
+                      onPressed: _handleSend,
+                      density: ButtonDensity.icon,
+                      child: const Icon(Icons.send, size: 20),
+                    ),
+                  ),
+                ],
               ),
             ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    placeholder: const Text('메시지를 입력하세요...'),
-                    onSubmitted: (_) => _handleSend(),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 44,
-                  height: 44,
-                  child: PrimaryButton(
-                    onPressed: _handleSend,
-                    density: ButtonDensity.icon,
-                    child: const Icon(Icons.send, size: 20),
-                  ),
-                ),
-              ],
-            ),
-          ),
         ],
       ),
     );

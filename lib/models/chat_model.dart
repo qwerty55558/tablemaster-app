@@ -1,3 +1,17 @@
+/// 채팅 제재 타입
+enum SanctionType { none, mute, ban }
+
+SanctionType _parseSanctionType(String? type) {
+  switch (type) {
+    case 'MUTE':
+      return SanctionType.mute;
+    case 'BAN':
+      return SanctionType.ban;
+    default:
+      return SanctionType.none;
+  }
+}
+
 /// 채팅 이벤트 타입
 enum ChatEventType {
   chatRequest,
@@ -6,6 +20,11 @@ enum ChatEventType {
   chatRequestFailed,
   chatError,
   chatClosed,
+  chatWarning,
+  chatMutedByStaff,
+  chatSanctioned,
+  chatMuted,
+  chatSanctionLifted,
   chatRoomsSnapshot,
   chatMessage,
 }
@@ -22,6 +41,11 @@ class ChatEvent {
   final ChatMessage? message;
   final List<ChatRoom>? rooms;
 
+  /// 제재 관련 필드
+  final SanctionType? sanctionType;
+  final String? mutedUntil;
+  final String? warningMessage;
+
   const ChatEvent({
     required this.type,
     this.fromDeviceId,
@@ -32,6 +56,9 @@ class ChatEvent {
     this.reason,
     this.message,
     this.rooms,
+    this.sanctionType,
+    this.mutedUntil,
+    this.warningMessage,
   });
 
   factory ChatEvent.fromJson(Map<String, dynamic> json) {
@@ -63,6 +90,9 @@ class ChatEvent {
       reason: json['reason'] as String?,
       message: message,
       rooms: rooms,
+      sanctionType: _parseSanctionType(json['sanctionType'] as String?),
+      mutedUntil: json['mutedUntil'] as String?,
+      warningMessage: json['warningMessage'] as String?,
     );
   }
 
@@ -80,6 +110,16 @@ class ChatEvent {
         return ChatEventType.chatError;
       case 'CHAT_CLOSED':
         return ChatEventType.chatClosed;
+      case 'CHAT_WARNING':
+        return ChatEventType.chatWarning;
+      case 'CHAT_MUTED_BY_STAFF':
+        return ChatEventType.chatMutedByStaff;
+      case 'CHAT_SANCTIONED':
+        return ChatEventType.chatSanctioned;
+      case 'CHAT_MUTED':
+        return ChatEventType.chatMuted;
+      case 'CHAT_SANCTION_LIFTED':
+        return ChatEventType.chatSanctionLifted;
       case 'CHAT_ROOMS_SNAPSHOT':
         return ChatEventType.chatRoomsSnapshot;
       default:
@@ -132,12 +172,24 @@ class ChatRoom {
   final String partnerTableName;
   final List<ChatMessage> messages;
 
+  /// 제재 상태
+  final SanctionType sanctionType;
+  final DateTime? mutedUntil;
+
   const ChatRoom({
     required this.roomId,
     required this.partnerDeviceId,
     required this.partnerTableName,
     this.messages = const [],
+    this.sanctionType = SanctionType.none,
+    this.mutedUntil,
   });
+
+  bool get isMuted =>
+      sanctionType == SanctionType.mute &&
+      (mutedUntil == null || mutedUntil!.isAfter(DateTime.now()));
+  bool get isBanned => sanctionType == SanctionType.ban;
+  bool get isSanctioned => isMuted || isBanned;
 
   factory ChatRoom.fromJson(Map<String, dynamic> json) {
     final messagesJson = json['messages'] as List<dynamic>? ?? [];
@@ -148,6 +200,10 @@ class ChatRoom {
       messages: messagesJson
           .map((m) => ChatMessage.fromJson(m as Map<String, dynamic>))
           .toList(),
+      sanctionType: _parseSanctionType(json['sanctionType'] as String?),
+      mutedUntil: json['mutedUntil'] != null
+          ? DateTime.tryParse(json['mutedUntil'] as String)
+          : null,
     );
   }
 
@@ -156,12 +212,17 @@ class ChatRoom {
     String? partnerDeviceId,
     String? partnerTableName,
     List<ChatMessage>? messages,
+    SanctionType? sanctionType,
+    DateTime? mutedUntil,
+    bool clearMutedUntil = false,
   }) {
     return ChatRoom(
       roomId: roomId ?? this.roomId,
       partnerDeviceId: partnerDeviceId ?? this.partnerDeviceId,
       partnerTableName: partnerTableName ?? this.partnerTableName,
       messages: messages ?? this.messages,
+      sanctionType: sanctionType ?? this.sanctionType,
+      mutedUntil: clearMutedUntil ? null : (mutedUntil ?? this.mutedUntil),
     );
   }
 }

@@ -126,6 +126,60 @@ class ChatRepository {
         _toastController.add(event);
         break;
 
+      case ChatEventType.chatWarning:
+        _toastController.add(event);
+        break;
+
+      case ChatEventType.chatMutedByStaff:
+        final roomId = event.roomId;
+        if (roomId != null && _rooms.containsKey(roomId)) {
+          _rooms[roomId] = _rooms[roomId]!.copyWith(
+            sanctionType: SanctionType.mute,
+            mutedUntil: event.mutedUntil != null
+                ? DateTime.tryParse(event.mutedUntil!)
+                : null,
+          );
+          _roomsController.add(rooms);
+          if (_activeRoomId == roomId) {
+            _activeRoomController.add(_rooms[roomId]);
+          }
+        }
+        _toastController.add(event);
+        break;
+
+      case ChatEventType.chatSanctioned:
+        final roomId = event.roomId;
+        if (roomId != null && _rooms.containsKey(roomId)) {
+          _rooms[roomId] = _rooms[roomId]!.copyWith(
+            sanctionType: SanctionType.ban,
+          );
+          _roomsController.add(rooms);
+          if (_activeRoomId == roomId) {
+            _activeRoomController.add(_rooms[roomId]);
+          }
+        }
+        _toastController.add(event);
+        break;
+
+      case ChatEventType.chatMuted:
+        _toastController.add(event);
+        break;
+
+      case ChatEventType.chatSanctionLifted:
+        final roomId = event.roomId;
+        if (roomId != null && _rooms.containsKey(roomId)) {
+          _rooms[roomId] = _rooms[roomId]!.copyWith(
+            sanctionType: SanctionType.none,
+            clearMutedUntil: true,
+          );
+          _roomsController.add(rooms);
+          if (_activeRoomId == roomId) {
+            _activeRoomController.add(_rooms[roomId]);
+          }
+        }
+        _toastController.add(event);
+        break;
+
       case ChatEventType.chatMessage:
         final msg = event.message;
         if (msg == null) break;
@@ -168,6 +222,8 @@ class ChatRepository {
   }
 
   void sendMessage(int roomId, String content) {
+    final room = _rooms[roomId];
+    if (room != null && room.isSanctioned) return;
     _wsService.sendChatMessage(roomId, content);
   }
 

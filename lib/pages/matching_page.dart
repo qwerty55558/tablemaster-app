@@ -179,6 +179,36 @@ class _MatchingPageState extends ConsumerState<MatchingPage> {
             icon = Icons.exit_to_app;
             color = AppColors.warning;
             break;
+          case ChatEventType.chatWarning:
+            title = '경고';
+            subtitle = event.warningMessage ?? '관리자로부터 경고를 받았습니다';
+            icon = Icons.warning_amber;
+            color = AppColors.warning;
+            break;
+          case ChatEventType.chatMutedByStaff:
+            title = '뮤트 제재';
+            subtitle = '관리자에 의해 메시지 전송이 제한되었습니다';
+            icon = Icons.volume_off;
+            color = AppColors.warning;
+            break;
+          case ChatEventType.chatSanctioned:
+            title = '채팅 제한';
+            subtitle = '관리자에 의해 채팅이 제한되었습니다';
+            icon = Icons.block;
+            color = AppColors.error;
+            break;
+          case ChatEventType.chatMuted:
+            title = '전송 불가';
+            subtitle = '현재 뮤트 상태입니다';
+            icon = Icons.volume_off;
+            color = AppColors.warning;
+            break;
+          case ChatEventType.chatSanctionLifted:
+            title = '제재 해제';
+            subtitle = '채팅 제재가 해제되었습니다';
+            icon = Icons.check_circle;
+            color = AppColors.success;
+            break;
           default:
             return;
         }
