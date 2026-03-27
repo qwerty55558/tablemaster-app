@@ -1,9 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 import '../models/chat_model.dart';
+import '../models/bill_model.dart';
 import '../models/table_model.dart';
 import '../providers/providers.dart';
 import '../theme/app_colors.dart';
+import '../widgets/order_overlay.dart';
 
 /// 채팅 페이지 - 좌측 사이드바(내 테이블 + 채팅방 탭) + 우측 채팅 뷰
 class ChatPage extends ConsumerStatefulWidget {
@@ -14,6 +17,14 @@ class ChatPage extends ConsumerStatefulWidget {
 }
 
 class _ChatPageState extends ConsumerState<ChatPage> {
+  static const List<String> _reportReasons = [
+    '욕설/비하',
+    '성희롱/불쾌한 발언',
+    '도배/스팸',
+    '사칭/허위 정보',
+    '기타',
+  ];
+
   void _confirmLeave(int roomId) {
     showDialog(
       context: context,
@@ -37,6 +48,320 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
   }
 
+  Future<void> _showReportDialog(ChatRoom room) async {
+    final customReasonController = TextEditingController();
+    String? selectedReason;
+    bool isSubmitting = false;
+
+    try {
+      await showDialog(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            final customReason = customReasonController.text.trim();
+            final effectiveReason = selectedReason == '기타'
+                ? customReason
+                : (selectedReason ?? customReason);
+            final canSubmit =
+                !isSubmitting && effectiveReason.trim().isNotEmpty;
+
+            Future<void> submit() async {
+              if (!canSubmit) return;
+
+              setDialogState(() => isSubmitting = true);
+              final success = await ref.read(apiServiceProvider).reportChatRoom(
+                    roomId: room.roomId,
+                    reportedDeviceId: room.partnerDeviceId,
+                    reason: effectiveReason.trim(),
+                  );
+
+              if (!dialogContext.mounted) return;
+              if (!mounted) return;
+              Navigator.of(dialogContext).pop();
+
+              showToast(
+                context: this.context,
+                builder: (context, overlay) => SurfaceCard(
+                  child: Basic(
+                    title: Text(success ? '신고 완료' : '신고 실패'),
+                    subtitle: Text(
+                      success
+                          ? '${room.partnerTableName} 테이블을 신고했습니다'
+                          : '신고 요청을 처리하지 못했습니다',
+                    ),
+                    leading: Icon(
+                      success ? Icons.flag : Icons.error_outline,
+                      color: success ? AppColors.error : AppColors.warning,
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            return AlertDialog(
+              title: const Text('신고하기'),
+              content: SizedBox(
+                width: 420,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${room.partnerTableName} 테이블 신고 사유를 선택하세요.',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: AppColors.foregroundMuted,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _reportReasons.map((reason) {
+                        final isSelected = selectedReason == reason;
+                        return GestureDetector(
+                          onTap: isSubmitting
+                              ? null
+                              : () {
+                                  setDialogState(() {
+                                    selectedReason = reason;
+                                    if (reason != '기타') {
+                                      customReasonController.text = '';
+                                    }
+                                  });
+                                },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 120),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? AppColors.error.withValues(alpha: 0.14)
+                                  : AppColors.background,
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                color: isSelected
+                                    ? AppColors.error
+                                    : AppColors.borderLight,
+                              ),
+                            ),
+                            child: Text(
+                              reason,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                color: isSelected
+                                    ? AppColors.error
+                                    : AppColors.foreground,
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: customReasonController,
+                      enabled: !isSubmitting,
+                      placeholder: Text(
+                        selectedReason == '기타'
+                            ? '신고 사유를 직접 입력하세요'
+                            : '필요하면 추가 설명을 입력하세요',
+                      ),
+                      onChanged: (_) => setDialogState(() {}),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                OutlineButton(
+                  onPressed: isSubmitting
+                      ? null
+                      : () => Navigator.pop(dialogContext),
+                  child: const Text('취소'),
+                ),
+                DestructiveButton(
+                  onPressed: canSubmit ? submit : null,
+                  child: Text(isSubmitting ? '신고 중...' : '신고'),
+                ),
+              ],
+            );
+          },
+        ),
+      );
+    } finally {
+      customReasonController.dispose();
+    }
+  }
+
+  Future<void> _showGiftDialog(ChatRoom room) async {
+    await ref.read(catalogResourcesProvider.notifier).load();
+    if (!mounted) return;
+
+    final gifts = ref.read(catalogResourcesProvider).giftItems;
+    if (!mounted) return;
+
+    if (gifts.isEmpty) {
+      showToast(
+        context: context,
+        builder: (context, overlay) => const SurfaceCard(
+          child: Basic(
+            title: Text('선물 없음'),
+            subtitle: Text('판매 가능한 선물이 없습니다'),
+            leading: Icon(Icons.card_giftcard, color: AppColors.warning),
+          ),
+        ),
+      );
+      return;
+    }
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('선물하기'),
+        content: SizedBox(
+          width: 420,
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: gifts.length,
+            separatorBuilder: (context, index) => const SizedBox(height: 8),
+            itemBuilder: (context, index) {
+              final gift = gifts[index];
+              return _GiftSelectionTile(
+                gift: gift,
+                onTap: () async {
+                  Navigator.pop(dialogContext);
+                  await _showGiftConfirmDialog(room, gift);
+                },
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showGiftConfirmDialog(ChatRoom room, GiftItem gift) async {
+    await showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('선물 보내기'),
+        content: SizedBox(
+          width: 360,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${room.partnerTableName} 테이블에 아래 선물을 보냅니다.',
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppColors.foregroundMuted,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.background,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: AppColors.tableChatting.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.card_giftcard,
+                        size: 20,
+                        color: AppColors.tableChatting,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            gift.displayName,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.foreground,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            gift.code,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppColors.foregroundMuted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Text(
+                      _formatAmount(gift.price),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.foreground,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          OutlineButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('취소'),
+          ),
+          PrimaryButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              ref.read(webSocketServiceProvider).sendChatGift(
+                    room.roomId,
+                    gift.code,
+                  );
+              final currentTable = ref.read(currentTableProvider);
+              if (currentTable != null) {
+                await ref
+                    .read(orderPanelProvider.notifier)
+                    .refreshBillFor(currentTable.id);
+              }
+              if (!mounted) return;
+              showToast(
+                context: context,
+                builder: (context, overlay) => SurfaceCard(
+                  child: Basic(
+                    title: const Text('선물 전송'),
+                    subtitle: Text('${gift.displayName}을 보냈습니다'),
+                    leading: const Icon(
+                      Icons.card_giftcard,
+                      color: AppColors.tableChatting,
+                    ),
+                  ),
+                ),
+              );
+            },
+            child: const Text('보내기'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentTable = ref.watch(currentTableProvider);
@@ -54,36 +379,40 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       child: Container(
         color: AppColors.background,
         child: SafeArea(
-          child: Row(
+          child: Stack(
             children: [
-              // 좌측 사이드바
-              _ChatSidebar(
-                currentTable: currentTable,
-                chatRooms: chatRooms,
-                activeRoomId: activeRoom?.roomId,
-                onSwitchRoom: (roomId) {
-                  ref.read(chatRepositoryProvider).setActiveRoom(roomId);
-                },
-                onLeaveRoom: (roomId) => _confirmLeave(roomId),
-                onBack: () => Navigator.pop(context),
+              Row(
+                children: [
+                  _ChatSidebar(
+                    currentTable: currentTable,
+                    chatRooms: chatRooms,
+                    activeRoomId: activeRoom?.roomId,
+                    onSwitchRoom: (roomId) {
+                      ref.read(chatRepositoryProvider).setActiveRoom(roomId);
+                    },
+                    onLeaveRoom: (roomId) => _confirmLeave(roomId),
+                    onBack: () => Navigator.pop(context),
+                  ),
+                  Expanded(
+                    child: activeRoom != null
+                        ? _ChatContent(
+                            chatRoom: activeRoom,
+                            myDeviceId: currentTable?.id,
+                            onSend: (content) {
+                              ref.read(chatRepositoryProvider).sendMessage(
+                                activeRoom.roomId,
+                                content,
+                              );
+                            },
+                            onGift: () => _showGiftDialog(activeRoom),
+                            onReport: () => _showReportDialog(activeRoom),
+                            onLeave: () => _confirmLeave(activeRoom.roomId),
+                          )
+                        : _buildEmptyState(),
+                  ),
+                ],
               ),
-
-              // 우측 채팅 뷰
-              Expanded(
-                child: activeRoom != null
-                    ? _ChatContent(
-                        chatRoom: activeRoom,
-                        myDeviceId: currentTable?.id,
-                        onSend: (content) {
-                          ref.read(chatRepositoryProvider).sendMessage(
-                            activeRoom.roomId,
-                            content,
-                          );
-                        },
-                        onLeave: () => _confirmLeave(activeRoom.roomId),
-                      )
-                    : _buildEmptyState(),
-              ),
+              const OrderOverlay(),
             ],
           ),
         ),
@@ -453,7 +782,7 @@ class _ChatSidebar extends StatelessWidget {
                       if (lastMessage != null) ...[
                         const SizedBox(height: 2),
                         Text(
-                          lastMessage.content,
+                          _buildLastMessagePreview(lastMessage),
                           overflow: TextOverflow.ellipsis,
                           maxLines: 1,
                           style: const TextStyle(
@@ -483,6 +812,17 @@ class _ChatSidebar extends StatelessWidget {
       },
     );
   }
+
+  String _buildLastMessagePreview(ChatMessage message) {
+    switch (message.messageType) {
+      case 'GIFT':
+        return '선물: ${message.content}';
+      case 'WARNING':
+        return '관리자 경고';
+      default:
+        return message.content;
+    }
+  }
 }
 
 /// 우측 채팅 콘텐츠
@@ -490,12 +830,16 @@ class _ChatContent extends StatefulWidget {
   final ChatRoom chatRoom;
   final String? myDeviceId;
   final void Function(String content) onSend;
+  final VoidCallback onGift;
+  final VoidCallback onReport;
   final VoidCallback onLeave;
 
   const _ChatContent({
     required this.chatRoom,
     required this.myDeviceId,
     required this.onSend,
+    required this.onGift,
+    required this.onReport,
     required this.onLeave,
   });
 
@@ -632,6 +976,19 @@ class _ChatContentState extends State<_ChatContent> {
                     ],
                   ),
                 ),
+                GhostButton(
+                  onPressed: widget.onReport,
+                  size: ButtonSize.small,
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.flag_outlined, size: 16),
+                      SizedBox(width: 4),
+                      Text('신고'),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
                 OutlineButton(
                   onPressed: widget.chatRoom.isBanned ? null : widget.onLeave,
                   size: ButtonSize.small,
@@ -675,6 +1032,9 @@ class _ChatContentState extends State<_ChatContent> {
                         return _WarningNotice(message: msg);
                       }
                       final isMine = msg.senderDeviceId == widget.myDeviceId;
+                      if (msg.messageType == 'GIFT') {
+                        return _GiftNotice(message: msg, isMine: isMine);
+                      }
                       return _ChatBubble(
                         message: msg,
                         isMine: isMine,
@@ -709,6 +1069,16 @@ class _ChatContentState extends State<_ChatContent> {
               ),
               child: Row(
                 children: [
+                  SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: GhostButton(
+                      onPressed: widget.onGift,
+                      density: ButtonDensity.icon,
+                      child: const Icon(Icons.card_giftcard, size: 20),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
                       controller: _controller,
@@ -733,6 +1103,121 @@ class _ChatContentState extends State<_ChatContent> {
       ),
     );
   }
+}
+
+class _GiftSelectionTile extends StatelessWidget {
+  final GiftItem gift;
+  final VoidCallback onTap;
+
+  const _GiftSelectionTile({
+    required this.gift,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.background,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _GiftImage(imageUrl: gift.resolvedImageUrl),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    gift.displayName,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.foreground,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    gift.code,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.foregroundSubtle,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Text(
+              _formatAmount(gift.price),
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.foreground,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GiftImage extends StatelessWidget {
+  final String? imageUrl;
+
+  const _GiftImage({required this.imageUrl});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: 52,
+        height: 52,
+        color: AppColors.backgroundSecondary,
+        child: imageUrl == null
+            ? const Icon(
+                Icons.card_giftcard,
+                color: AppColors.tableChatting,
+              )
+            : imageUrl!.endsWith('.svg')
+                ? SvgPicture.network(
+                    imageUrl!,
+                    fit: BoxFit.cover,
+                    placeholderBuilder: (_) => const Icon(
+                      Icons.card_giftcard,
+                      color: AppColors.tableChatting,
+                    ),
+                  )
+                : Image.network(
+                    imageUrl!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => const Icon(
+                      Icons.card_giftcard,
+                      color: AppColors.tableChatting,
+                    ),
+                  ),
+      ),
+    );
+  }
+}
+
+String _formatAmount(int amount) {
+  final reversed = amount.toString().split('').reversed.toList();
+  final buffer = StringBuffer();
+  for (var i = 0; i < reversed.length; i++) {
+    if (i > 0 && i % 3 == 0) {
+      buffer.write(',');
+    }
+    buffer.write(reversed[i]);
+  }
+  return '${buffer.toString().split('').reversed.join()}원';
 }
 
 /// 관리자 경고 알림 (채팅 내 시스템 메시지)
@@ -783,6 +1268,71 @@ class _WarningNotice extends StatelessWidget {
                   fontSize: 12,
                   color: AppColors.foregroundMuted.withValues(alpha: 0.8),
                   height: 1.4,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GiftNotice extends StatelessWidget {
+  final ChatMessage message;
+  final bool isMine;
+
+  const _GiftNotice({
+    required this.message,
+    required this.isMine,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final text = isMine
+        ? '${message.content} 선물을 보냈습니다'
+        : '${message.senderTableName} 테이블에게서 ${message.content} 선물을 받았습니다';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 360),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: AppColors.tableChatting.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: AppColors.tableChatting.withValues(alpha: 0.2),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: AppColors.tableChatting.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.card_giftcard,
+                  size: 16,
+                  color: AppColors.tableChatting,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Text(
+                  text,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.foreground,
+                    height: 1.4,
+                  ),
                 ),
               ),
             ],

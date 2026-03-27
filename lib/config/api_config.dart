@@ -15,6 +15,12 @@ class ApiConfig {
     return '$protocol://$_apiHost$portPart/api/v1';
   }
 
+  static String get origin {
+    final protocol = _useHttps ? 'https' : 'http';
+    final portPart = (_apiPort == '80' || _apiPort == '443' || _apiPort == '') ? '' : ':$_apiPort';
+    return '$protocol://$_apiHost$portPart';
+  }
+
   static String get wsUrl {
     final protocol = _useHttps ? 'wss' : 'ws';
     final portPart = (_wsPort == '80' || _wsPort == '443' || _wsPort == '') ? '' : ':$_wsPort';
@@ -47,9 +53,24 @@ class ApiConfig {
   static const String tables = '/tables';
   static const String tableSetup = '/tables/setup';
   static const String tableReset = '/tables'; // + /{tableId}/reset
+  static const String deviceChatRooms = '/device/chat/rooms';
+  static const String menuItems = '/menu-items';
+  static const String gifts = '/gifts';
 
   // Notification Endpoints
   static const String notifications = '/device/notifications';
   static const String unreadCount = '/device/notifications/unread-count';
   static const String readAllNotifications = '/device/notifications/read-all';
+
+  static String? resolveAssetUrl(String? path) {
+    if (path == null || path.trim().isEmpty) return null;
+    final value = path.trim();
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+      return value;
+    }
+    if (value.startsWith('/')) {
+      return '$origin$value';
+    }
+    return '$origin/$value';
+  }
 }

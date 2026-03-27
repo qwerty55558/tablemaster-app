@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
+import '../models/bill_model.dart';
 import '../models/chat_model.dart';
 import '../models/notification_model.dart';
 import '../models/table_model.dart';
@@ -8,6 +9,7 @@ import '../services/auth_service.dart';
 import '../services/server_time.dart';
 import '../services/websocket_service.dart';
 import '../theme/app_colors.dart';
+import '../widgets/order_overlay.dart';
 import 'chat_page.dart';
 
 /// 매칭 페이지 - 사이드바 + 메인 콘텐츠 레이아웃
@@ -19,6 +21,34 @@ class MatchingPage extends ConsumerStatefulWidget {
 }
 
 class _MatchingPageState extends ConsumerState<MatchingPage> {
+  bool _isChatRouteOpen = false;
+  bool _didAttemptChatRestore = false;
+
+  void _openChatPage() {
+    if (_isChatRouteOpen || !mounted) return;
+
+    _isChatRouteOpen = true;
+    Navigator.push(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            const ChatPage(),
+        transitionsBuilder:
+            (context, animation, secondaryAnimation, child) {
+          return SlideTransition(
+            position: Tween(
+              begin: const Offset(1.0, 0.0),
+              end: Offset.zero,
+            ).chain(CurveTween(curve: Curves.easeOutCubic)).animate(animation),
+            child: child,
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 300),
+      ),
+    ).then((_) {
+      _isChatRouteOpen = false;
+    });
+  }
 
   /// 테이블 삭제 이벤트 처리 - 메인으로 리다이렉트
   void _handleTableDeleted(String tableId) {
@@ -166,6 +196,18 @@ class _MatchingPageState extends ConsumerState<MatchingPage> {
             icon = Icons.error_outline;
             color = AppColors.error;
             break;
+          case ChatEventType.chatGiftSent:
+            title = '선물 전송';
+            subtitle = '${event.giftType ?? '선물'}을 보냈습니다';
+            icon = Icons.card_giftcard;
+            color = AppColors.tableChatting;
+            break;
+          case ChatEventType.chatGiftReceived:
+            title = '선물 도착';
+            subtitle = '${event.fromTableName ?? '상대방'}에게서 ${event.giftType ?? '선물'}을 받았습니다';
+            icon = Icons.card_giftcard;
+            color = AppColors.tableChatting;
+            break;
           case ChatEventType.chatError:
             title = '채팅 오류';
             subtitle = event.reason ?? '알 수 없는 오류가 발생했습니다';
@@ -237,24 +279,7 @@ class _MatchingPageState extends ConsumerState<MatchingPage> {
     // 채팅 수락 시 ChatPage로 이동
     ref.listen<ChatRoom?>(activeChatRoomProvider, (previous, next) {
       if (previous == null && next != null) {
-        Navigator.push(
-          context,
-          PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) =>
-                const ChatPage(),
-            transitionsBuilder:
-                (context, animation, secondaryAnimation, child) {
-              return SlideTransition(
-                position: Tween(
-                  begin: const Offset(1.0, 0.0),
-                  end: Offset.zero,
-                ).chain(CurveTween(curve: Curves.easeOutCubic)).animate(animation),
-                child: child,
-              );
-            },
-            transitionDuration: const Duration(milliseconds: 300),
-          ),
-        );
+        _openChatPage();
       }
     });
 
@@ -265,6 +290,13 @@ class _MatchingPageState extends ConsumerState<MatchingPage> {
     final chattingPartnerIds = chatRooms.values
         .map((r) => r.partnerDeviceId)
         .toSet();
+
+    if (!_didAttemptChatRestore && chatRooms.isNotEmpty) {
+      _didAttemptChatRestore = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openChatPage();
+      });
+    }
 
     return Scaffold(
       child: Container(
@@ -322,27 +354,10 @@ class _MatchingPageState extends ConsumerState<MatchingPage> {
               if (chatRooms.isNotEmpty)
                 _DraggableChatButton(
                   chatRoomCount: chatRooms.length,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      PageRouteBuilder(
-                        pageBuilder: (context, animation, secondaryAnimation) =>
-                            const ChatPage(),
-                        transitionsBuilder:
-                            (context, animation, secondaryAnimation, child) {
-                          return SlideTransition(
-                            position: Tween(
-                              begin: const Offset(1.0, 0.0),
-                              end: Offset.zero,
-                            ).chain(CurveTween(curve: Curves.easeOutCubic)).animate(animation),
-                            child: child,
-                          );
-                        },
-                        transitionDuration: const Duration(milliseconds: 300),
-                      ),
-                    );
-                  },
+                  onTap: _openChatPage,
                 ),
+              OrderOverlay(
+              ),
             ],
           ),
         ),
@@ -525,7 +540,7 @@ class _DraggableChatButtonState extends State<_DraggableChatButton>
 }
 
 /// 좌측 사이드바 - 테이블 목록
-class _TableSidebar extends StatelessWidget {
+class _TableSidebar extends ConsumerWidget {
   final TableModel? currentTable;
   final List<TableModel> tables;
   final TableModel? selectedTable;
@@ -553,7 +568,7 @@ class _TableSidebar extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Container(
       width: 280,
       decoration: const BoxDecoration(
@@ -581,10 +596,50 @@ class _TableSidebar extends StatelessWidget {
           Expanded(child: _buildTableList()),
 
           // 하단 범례
-          _buildLegend(),
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+            decoration: const BoxDecoration(
+              border: Border(top: BorderSide(color: AppColors.border, width: 1)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _LegendDot(color: AppColors.tableOccupied, label: '이용중'),
+                    _LegendDot(color: AppColors.tableAvailable, label: '빈테이블'),
+                    _LegendDot(color: AppColors.tableChatting, label: '채팅중'),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _OrderQuickActionButton(
+                      icon: Icons.receipt_long,
+                      onTap: () => _openOrderPanel(ref, OrderPanelTab.bill),
+                    ),
+                    const SizedBox(width: 12),
+                    _OrderQuickActionButton(
+                      icon: Icons.shopping_cart_outlined,
+                      onTap: () => _openOrderPanel(ref, OrderPanelTab.order),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  Future<void> _openOrderPanel(WidgetRef ref, OrderPanelTab tab) async {
+    if (currentTable == null) {
+      return;
+    }
+    await ref.read(orderPanelProvider.notifier).open(currentTable!.id, tab: tab);
   }
 
   Widget _buildHeader() {
@@ -654,133 +709,139 @@ class _TableSidebar extends StatelessWidget {
           width: isMyTableSelected ? 1.5 : 1,
         ),
       ),
-      child: Row(
+      child: Column(
         children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: AppColors.tableOccupied.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Center(
-              child: Text(
-                table.name,
-                overflow: TextOverflow.ellipsis,
-                maxLines: 1,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.tableOccupied,
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: AppColors.tableOccupied.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Center(
+                  child: Text(
+                    table.name,
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.tableOccupied,
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      '내 테이블',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppColors.foregroundMuted,
-                      ),
-                    ),
-                    if (chatRoomCount > 0) ...[
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: AppColors.tableChatting,
-                          borderRadius: BorderRadius.circular(8),
+                    Row(
+                      children: [
+                        const Text(
+                          '내 테이블',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.foregroundMuted,
+                          ),
                         ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.chat_bubble, size: 8, color: Colors.white),
-                            SizedBox(width: 3),
-                            Text(
-                              '채팅 중',
-                              style: TextStyle(
+                        if (chatRoomCount > 0) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: AppColors.tableChatting,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.chat_bubble, size: 8, color: Colors.white),
+                                SizedBox(width: 3),
+                                Text(
+                                  '채팅 중',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        if (unreadCount > 0) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: AppColors.error,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '$unreadCount',
+                              style: const TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
                                 color: Colors.white,
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                    ],
-                    if (unreadCount > 0) ...[
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: AppColors.error,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          '$unreadCount',
-                          style: const TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        '${table.name} 테이블',
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 1,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.foreground,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    if (table.guestCount != null)
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.people,
-                            size: 12,
-                            color: AppColors.foregroundMuted,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '${table.guestCount}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: AppColors.foregroundMuted,
-                            ),
                           ),
                         ],
-                      ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            '${table.name} 테이블',
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.foreground,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        if (table.guestCount != null)
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.people,
+                                size: 12,
+                                color: AppColors.foregroundMuted,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                '${table.guestCount}',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.foregroundMuted,
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
                   ],
                 ),
-              ],
-            ),
+              ),
+              Icon(
+                Icons.chevron_right,
+                size: 18,
+                color: isMyTableSelected
+                    ? AppColors.tableOccupied
+                    : AppColors.foregroundSubtle,
+              ),
+            ],
           ),
-          Icon(
-            Icons.chevron_right,
-            size: 18,
-            color: isMyTableSelected
-                ? AppColors.tableOccupied
-                : AppColors.foregroundSubtle,
-          ),
+          const SizedBox(height: 12),
+          _ChatToggleCard(currentTable: table),
         ],
       ),
     );
@@ -846,22 +907,6 @@ class _TableSidebar extends StatelessWidget {
     );
   }
 
-  Widget _buildLegend() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: const BoxDecoration(
-        border: Border(top: BorderSide(color: AppColors.border, width: 1)),
-      ),
-      child: const Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _LegendDot(color: AppColors.tableOccupied, label: '이용중'),
-          _LegendDot(color: AppColors.tableAvailable, label: '빈테이블'),
-          _LegendDot(color: AppColors.tableReserved, label: '예약'),
-        ],
-      ),
-    );
-  }
 }
 
 /// 테이블 목록 아이템
@@ -884,9 +929,8 @@ class _TableListItem extends StatelessWidget {
       case TableStatus.inactive:
         return AppColors.tableAvailable;
       case TableStatus.occupied:
-        return AppColors.tableOccupied;
       case TableStatus.reserved:
-        return AppColors.tableReserved;
+        return AppColors.tableOccupied;
       case TableStatus.chatting:
         return AppColors.tableChatting;
     }
@@ -942,6 +986,17 @@ class _TableListItem extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Text(
+                    '${table.name} 테이블',
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.foreground,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
                   Row(
                     children: [
                       // 상태 뱃지
@@ -1048,9 +1103,8 @@ class _TableListItem extends StatelessWidget {
       case TableStatus.available:
         return '빈테이블';
       case TableStatus.occupied:
-        return '이용중';
       case TableStatus.reserved:
-        return '예약';
+        return '이용중';
       case TableStatus.chatting:
         return '채팅중';
       case TableStatus.inactive:
@@ -1091,6 +1145,30 @@ class _LegendDot extends StatelessWidget {
     );
   }
 }
+
+class _OrderQuickActionButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _OrderQuickActionButton({
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 48,
+      height: 48,
+      child: GhostButton(
+        density: ButtonDensity.icon,
+        onPressed: onTap,
+        child: Icon(icon, size: 22, color: AppColors.foreground),
+      ),
+    );
+  }
+}
+
 
 /// 우측 메인 콘텐츠
 class _MainContent extends StatelessWidget {
@@ -1266,6 +1344,12 @@ class _MainContent extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  _StatusSummaryCard(
+                    color: statusColor,
+                    title: _getStatusText(table.status),
+                    description: _buildTableStatusDescription(table),
+                  ),
+                  const SizedBox(height: 16),
                   const Text(
                     '테이블 정보',
                     style: TextStyle(
@@ -1359,9 +1443,8 @@ class _MainContent extends StatelessWidget {
       case TableStatus.inactive:
         return AppColors.tableAvailable;
       case TableStatus.occupied:
-        return AppColors.tableOccupied;
       case TableStatus.reserved:
-        return AppColors.tableReserved;
+        return AppColors.tableOccupied;
       case TableStatus.chatting:
         return AppColors.tableChatting;
     }
@@ -1372,9 +1455,8 @@ class _MainContent extends StatelessWidget {
       case TableStatus.available:
         return '빈테이블';
       case TableStatus.occupied:
-        return '이용중';
       case TableStatus.reserved:
-        return '예약';
+        return '이용중';
       case TableStatus.chatting:
         return '채팅중';
       case TableStatus.inactive:
@@ -1407,6 +1489,7 @@ class _MyTableContent extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final notifications = ref.watch(notificationsProvider);
     final statusColor = AppColors.tableOccupied;
+    final billAsync = ref.watch(currentOrdersProvider(currentTable.id));
 
     return Container(
       color: AppColors.background,
@@ -1510,6 +1593,31 @@ class _MyTableContent extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  billAsync.when(
+                    data: (bill) => _StatusSummaryCard(
+                      color: statusColor,
+                      title: _tableStatusLabel(currentTable.status),
+                      description: _buildTableStatusDescription(
+                        currentTable,
+                        bill: bill,
+                        isCurrentTable: true,
+                      ),
+                    ),
+                    loading: () => const _StatusSummaryCard(
+                      color: AppColors.tableOccupied,
+                      title: '상태 확인 중',
+                      description: '현재 테이블 상태와 주문 상황을 불러오고 있습니다.',
+                    ),
+                    error: (error, stackTrace) => _StatusSummaryCard(
+                      color: statusColor,
+                      title: _tableStatusLabel(currentTable.status),
+                      description: _buildTableStatusDescription(
+                        currentTable,
+                        isCurrentTable: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
                   // 테이블 정보 섹션
                   const Text(
                     '테이블 정보',
@@ -1531,10 +1639,6 @@ class _MyTableContent extends ConsumerWidget {
                     icon: Icons.location_on_outlined,
                     label: '지역',
                     value: currentTable.location ?? '-',
-                  ),
-                  const SizedBox(height: 12),
-                  _ChatToggleCard(
-                    currentTable: currentTable,
                   ),
                   const SizedBox(height: 12),
                   _InfoCard(
@@ -1789,7 +1893,7 @@ class _NotificationItem extends StatelessWidget {
   }
 }
 
-/// 채팅 온오프 토글 카드
+/// 내 테이블에서 바로 조절하는 채팅 허용 토글
 class _ChatToggleCard extends ConsumerWidget {
   final TableModel currentTable;
 
@@ -1806,40 +1910,40 @@ class _ChatToggleCard extends ConsumerWidget {
       statusText = '채팅 중';
       statusColor = AppColors.tableChatting;
     } else if (isChatEnabled) {
-      statusText = '채팅 가능';
+      statusText = '허용됨';
       statusColor = AppColors.success;
     } else {
-      statusText = '대기';
+      statusText = '꺼짐';
       statusColor = AppColors.foregroundMuted;
     }
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: AppColors.backgroundSecondary,
+        color: AppColors.background.withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: AppColors.tableOccupied.withValues(alpha: 0.16)),
       ),
       child: Row(
         children: [
           Container(
-            width: 44,
-            height: 44,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
-              color: AppColors.background,
+              color: statusColor.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(Icons.chat_bubble_outline, size: 22, color: AppColors.foregroundMuted),
+            child: Icon(Icons.chat_bubble_outline, size: 18, color: statusColor),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  '채팅',
+                  '채팅 허용',
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 11,
                     color: AppColors.foregroundSubtle,
                   ),
                 ),
@@ -1847,7 +1951,7 @@ class _ChatToggleCard extends ConsumerWidget {
                 Text(
                   statusText,
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 14,
                     fontWeight: FontWeight.w600,
                     color: statusColor,
                   ),
@@ -1857,15 +1961,13 @@ class _ChatToggleCard extends ConsumerWidget {
           ),
           Switch(
             value: isChatEnabled,
-            onChanged: isChatting
-                ? null
-                : (value) async {
-                    final apiService = ref.read(apiServiceProvider);
-                    await apiService.updateTable(
-                      currentTable.id,
-                      {'isChatEnabled': value},
-                    );
-                  },
+            onChanged: (value) async {
+              final apiService = ref.read(apiServiceProvider);
+              await apiService.updateTable(
+                currentTable.id,
+                {'isChatEnabled': value},
+              );
+            },
           ),
         ],
       ),
@@ -1935,4 +2037,103 @@ class _InfoCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _StatusSummaryCard extends StatelessWidget {
+  final Color color;
+  final String title;
+  final String description;
+
+  const _StatusSummaryCard({
+    required this.color,
+    required this.title,
+    required this.description,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            description,
+            style: const TextStyle(
+              fontSize: 13,
+              height: 1.5,
+              color: AppColors.foreground,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _tableStatusLabel(TableStatus status) {
+  switch (status) {
+    case TableStatus.available:
+      return '빈테이블';
+    case TableStatus.occupied:
+    case TableStatus.reserved:
+      return '이용중';
+    case TableStatus.chatting:
+      return '채팅중';
+    case TableStatus.inactive:
+      return '연결 끊김';
+  }
+}
+
+String _buildTableStatusDescription(
+  TableModel table, {
+  Bill? bill,
+  bool isCurrentTable = false,
+}) {
+  final hasOrders = _orderCount(bill) > 0;
+
+  switch (table.status) {
+    case TableStatus.available:
+      return isCurrentTable
+          ? '현재 자리가 비어 있습니다.${hasOrders ? ' 남아 있는 주문 내역은 정산 전 기록입니다.' : ' 아직 등록된 주문도 없습니다.'}'
+          : '현재 손님이 없어 비어 있는 테이블입니다. 매칭이나 채팅은 진행되지 않는 상태입니다.';
+    case TableStatus.occupied:
+    case TableStatus.reserved:
+      final guestText = table.guestCount != null ? '${table.guestCount}명이 이용 중이며 ' : '';
+      final currentOrderSuffix = hasOrders ? ' 주문 내역도 함께 확인할 수 있습니다.' : '';
+      return isCurrentTable
+          ? '$guestText현장에서 주문과 이용이 진행 중인 상태입니다.$currentOrderSuffix'
+          : '$guestText손님이 실제로 이용 중인 테이블입니다. 채팅 허용 여부에 따라 요청 가능 여부가 달라집니다.';
+    case TableStatus.chatting:
+      final chattingOrderSuffix = hasOrders ? ' 대화 중에도 주문 내역은 계속 누적됩니다.' : '';
+      return isCurrentTable
+          ? '현재 다른 테이블과 채팅이 진행 중입니다.$chattingOrderSuffix'
+          : '현재 다른 테이블과 채팅 중인 상태입니다. 응답 대기나 대화 진행 중일 수 있습니다.';
+    case TableStatus.inactive:
+      return isCurrentTable
+          ? '테이블 기기 연결이 끊겨 상태 동기화가 불안정할 수 있습니다. 재연결 후 최신 상태를 다시 확인하세요.'
+          : '테이블 기기 연결이 끊겨 실제 현장 상태와 차이가 있을 수 있습니다.';
+  }
+}
+
+int _orderCount(Bill? bill) {
+  if (bill == null) return 0;
+  final orderItems = bill.orderItems.fold<int>(0, (sum, item) => sum + item.quantity);
+  final giftOrders = bill.giftOrders.fold<int>(0, (sum, item) => sum + item.quantity);
+  return orderItems + giftOrders;
 }

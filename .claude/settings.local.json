@@ -61,7 +61,8 @@
       "Bash(claude --version 2>/dev/null || echo \"cannot check version\")",
       "Bash(mkdir -p /Users/personal-ai/Projects/personal/tableProject/app/.claude/skills/deploy-fe && mv /Users/personal-ai/Projects/personal/tableProject/app/.claude/skills/deploy-fe.md /Users/personal-ai/Projects/personal/tableProject/app/.claude/skills/deploy-fe/SKILL.md)",
       "Bash(colima list:*)",
-      "Bash(colima stop:*)"
+      "Bash(colima stop:*)",
+      "Bash(flutter pub:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

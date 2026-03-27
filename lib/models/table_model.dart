@@ -110,7 +110,7 @@ class TableModel {
       case 'occupied':
         return TableStatus.occupied;
       case 'reserved':
-        return TableStatus.reserved;
+        return TableStatus.occupied;
       case 'chatting':
         return TableStatus.chatting;
       case 'inactive':

@@ -59,6 +59,7 @@ dependencies:
 
   # UUID generation for web device ID
   uuid: ^4.5.1
+  flutter_svg: ^2.2.4
 
 dev_dependencies:
   flutter_test:

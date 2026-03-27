@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:stomp_dart_client/stomp_dart_client.dart';
 import '../config/api_config.dart';
 import '../models/chat_model.dart';
@@ -81,8 +82,8 @@ class WebSocketService {
     _lastConnectionError = null;
     _connectCompleter = Completer<WebSocketConnectionResult>();
 
-    print('[WS] STOMP 연결 시도: ${ApiConfig.wsBaseUrl}');
-    print('[WS] Token: ${token.substring(0, 20)}...');
+    debugPrint('[WS] STOMP 연결 시도: ${ApiConfig.wsBaseUrl}');
+    debugPrint('[WS] Token: ${token.substring(0, 20)}...');
 
     _stompClient = StompClient(
       config: StompConfig.sockJS(
@@ -94,7 +95,7 @@ class WebSocketService {
         onDisconnect: _onDisconnect,
         onStompError: _onStompError,
         onWebSocketError: _onWebSocketError,
-        onDebugMessage: (msg) => print('[WS-DEBUG] $msg'),
+        onDebugMessage: (msg) => debugPrint('[WS-DEBUG] $msg'),
         reconnectDelay: const Duration(seconds: 5),
       ),
     );
@@ -122,7 +123,7 @@ class WebSocketService {
 
   /// STOMP 연결 성공 콜백
   void _onConnect(StompFrame frame) {
-    print('[WS] STOMP 연결 성공');
+    debugPrint('[WS] STOMP 연결 성공');
     _isConnected = true;
     _isConnecting = false;
 
@@ -136,32 +137,32 @@ class WebSocketService {
     _chatRoomSubscriptions.clear();
 
     // 도메인별 구독 채널
-    print('[WS] /user/queue/device 구독');
+    debugPrint('[WS] /user/queue/device 구독');
     _stompClient!.subscribe(
       destination: '/user/queue/device',
       callback: _onDeviceMessage,
     );
 
-    print('[WS] /user/queue/tables 구독');
+    debugPrint('[WS] /user/queue/tables 구독');
     _stompClient!.subscribe(
       destination: '/user/queue/tables',
       callback: _onTablesMessage,
     );
 
     // 브로드캐스트 채널 - 실시간 테이블 데이터
-    print('[WS] /topic/tables 구독');
+    debugPrint('[WS] /topic/tables 구독');
     _stompClient!.subscribe(
       destination: '/topic/tables',
       callback: _onTablesMessage,
     );
 
-    print('[WS] /user/queue/notifications 구독');
+    debugPrint('[WS] /user/queue/notifications 구독');
     _stompClient!.subscribe(
       destination: '/user/queue/notifications',
       callback: _onNotificationMessage,
     );
 
-    print('[WS] /user/queue/chat 구독');
+    debugPrint('[WS] /user/queue/chat 구독');
     _stompClient!.subscribe(
       destination: '/user/queue/chat',
       callback: _onChatMessage,
@@ -173,7 +174,7 @@ class WebSocketService {
 
   /// STOMP 연결 해제 콜백
   void _onDisconnect(StompFrame frame) {
-    print('[WS] 연결 해제됨: ${frame.body}');
+    debugPrint('[WS] 연결 해제됨: ${frame.body}');
     _isConnected = false;
     _isConnecting = false;
     _scheduleReconnect();
@@ -181,8 +182,8 @@ class WebSocketService {
 
   /// STOMP 에러 콜백
   void _onStompError(StompFrame frame) {
-    print('[WS] STOMP 에러: ${frame.command} - ${frame.body}');
-    print('[WS] STOMP 헤더: ${frame.headers}');
+    debugPrint('[WS] STOMP 에러: ${frame.command} - ${frame.body}');
+    debugPrint('[WS] STOMP 헤더: ${frame.headers}');
     _isConnected = false;
     _isConnecting = false;
     _lastConnectionError = frame.body ?? 'STOMP 에러';
@@ -198,7 +199,7 @@ class WebSocketService {
 
   /// WebSocket 에러 콜백
   void _onWebSocketError(dynamic error) {
-    print('[WS] WebSocket 에러: $error');
+    debugPrint('[WS] WebSocket 에러: $error');
     _isConnected = false;
     _isConnecting = false;
     _lastConnectionError = error.toString();
@@ -278,7 +279,7 @@ class WebSocketService {
     try {
       await _syncCompleter!.future.timeout(const Duration(seconds: 10));
     } catch (_) {
-      print('[WS] 동기화 타임아웃 - 연결은 유지');
+      debugPrint('[WS] 동기화 타임아웃 - 연결은 유지');
     }
     _syncCompleter = null;
     return result;
@@ -286,7 +287,7 @@ class WebSocketService {
 
   /// 연결 후 동기화 요청
   void _requestSync() {
-    print('[WS] 동기화 요청');
+    debugPrint('[WS] 동기화 요청');
 
     _stompClient?.send(
       destination: '/app/sync',
@@ -296,7 +297,7 @@ class WebSocketService {
 
   /// INACTIVE 테이블 재연결 델타 전송
   void sendReconnectDelta() {
-    print('[WS] 재연결 델타 전송');
+    debugPrint('[WS] 재연결 델타 전송');
 
     _stompClient?.send(
       destination: '/app/table/reconnect',
@@ -305,7 +306,7 @@ class WebSocketService {
 
   /// 채팅 요청
   void sendChatRequest(String targetTableId) {
-    print('[WS] 채팅 요청: $targetTableId');
+    debugPrint('[WS] 채팅 요청: $targetTableId');
     _stompClient?.send(
       destination: '/app/chat/request',
       body: jsonEncode({'targetTableId': targetTableId}),
@@ -314,7 +315,7 @@ class WebSocketService {
 
   /// 채팅 수락
   void sendChatAccept(String targetTableId) {
-    print('[WS] 채팅 수락: $targetTableId');
+    debugPrint('[WS] 채팅 수락: $targetTableId');
     _stompClient?.send(
       destination: '/app/chat/accept',
       body: jsonEncode({'targetTableId': targetTableId}),
@@ -323,7 +324,7 @@ class WebSocketService {
 
   /// 채팅 거절
   void sendChatReject(String targetTableId) {
-    print('[WS] 채팅 거절: $targetTableId');
+    debugPrint('[WS] 채팅 거절: $targetTableId');
     _stompClient?.send(
       destination: '/app/chat/reject',
       body: jsonEncode({'targetTableId': targetTableId}),
@@ -332,7 +333,7 @@ class WebSocketService {
 
   /// 채팅 퇴장
   void sendChatLeave(int roomId) {
-    print('[WS] 채팅 퇴장: roomId=$roomId');
+    debugPrint('[WS] 채팅 퇴장: roomId=$roomId');
     _stompClient?.send(
       destination: '/app/chat/leave',
       body: jsonEncode({'roomId': roomId}),
@@ -341,7 +342,7 @@ class WebSocketService {
 
   /// 메시지 전송
   void sendChatMessage(int roomId, String content) {
-    print('[WS] 메시지 전송: roomId=$roomId');
+    debugPrint('[WS] 메시지 전송: roomId=$roomId');
     _stompClient?.send(
       destination: '/app/chat/send',
       body: jsonEncode({'roomId': roomId, 'content': content}),
@@ -350,7 +351,7 @@ class WebSocketService {
 
   /// 선물 전송
   void sendChatGift(int roomId, String giftType) {
-    print('[WS] 선물 전송: roomId=$roomId');
+    debugPrint('[WS] 선물 전송: roomId=$roomId');
     _stompClient?.send(
       destination: '/app/chat/gift',
       body: jsonEncode({
@@ -362,18 +363,18 @@ class WebSocketService {
 
   /// 디바이스 메시지 수신 처리
   void _onDeviceMessage(StompFrame frame) {
-    print('[WS] 디바이스 메시지 수신: ${frame.body}');
+    debugPrint('[WS] 디바이스 메시지 수신: ${frame.body}');
 
     if (frame.body == null) return;
 
     try {
       final data = jsonDecode(frame.body!) as Map<String, dynamic>;
       final type = data['type'] as String?;
-      print('[WS] 디바이스 메시지 타입: $type');
+      debugPrint('[WS] 디바이스 메시지 타입: $type');
 
       _deviceStreamController.add(data);
     } catch (e) {
-      print('[WS] 디바이스 메시지 파싱 에러: $e');
+      debugPrint('[WS] 디바이스 메시지 파싱 에러: $e');
     }
   }
 
@@ -384,7 +385,7 @@ class WebSocketService {
     try {
       final data = jsonDecode(frame.body!) as Map<String, dynamic>;
       final type = data['type'] as String?;
-      print('[WS] 테이블 메시지: $type');
+      debugPrint('[WS] 테이블 메시지: $type');
 
       switch (type) {
         case 'TABLES_SNAPSHOT':
@@ -394,7 +395,7 @@ class WebSocketService {
                 .map((json) => TableModel.fromJson(json as Map<String, dynamic>))
                 .toList();
             _tablesStreamController.add(TableDeltaEvent.snapshot(tables));
-            print('[WS] TABLES_SNAPSHOT: ${tables.length}개 테이블');
+            debugPrint('[WS] TABLES_SNAPSHOT: ${tables.length}개 테이블');
 
             // 연결 안정 확인 → backoff 리셋
             _reconnectAttempts = 0;
@@ -410,7 +411,7 @@ class WebSocketService {
           if (tableJson != null) {
             final table = TableModel.fromJson(tableJson);
             _tablesStreamController.add(TableDeltaEvent.added(table));
-            print('[WS] TABLE_ADDED: ${table.id}');
+            debugPrint('[WS] TABLE_ADDED: ${table.id}');
           }
           break;
 
@@ -418,7 +419,7 @@ class WebSocketService {
           final tableId = data['id'] as String?;
           if (tableId != null) {
             _tablesStreamController.add(TableDeltaEvent.removed(tableId));
-            print('[WS] TABLE_REMOVED: $tableId');
+            debugPrint('[WS] TABLE_REMOVED: $tableId');
           }
           break;
 
@@ -427,31 +428,31 @@ class WebSocketService {
           if (tableJson != null) {
             final table = TableModel.fromJson(tableJson);
             _tablesStreamController.add(TableDeltaEvent.updated(table));
-            print('[WS] TABLE_UPDATED: ${table.id}');
+            debugPrint('[WS] TABLE_UPDATED: ${table.id}');
           }
           break;
 
         default:
-          print('[WS] 알 수 없는 테이블 메시지: $type');
+          debugPrint('[WS] 알 수 없는 테이블 메시지: $type');
       }
     } catch (e) {
-      print('[WS] 테이블 메시지 파싱 에러: $e');
+      debugPrint('[WS] 테이블 메시지 파싱 에러: $e');
     }
   }
 
   /// 알림 메시지 수신 처리
   void _onNotificationMessage(StompFrame frame) {
-    print('[WS] 알림 메시지 수신: ${frame.body}');
+    debugPrint('[WS] 알림 메시지 수신: ${frame.body}');
 
     if (frame.body == null) return;
 
     try {
       final data = jsonDecode(frame.body!) as Map<String, dynamic>;
       final type = data['type'] as String?;
-      print('[WS] 알림 메시지 타입: $type');
+      debugPrint('[WS] 알림 메시지 타입: $type');
 
       if (type == 'DEVICE_DELETED') {
-        print('[WS] DEVICE_DELETED 수신');
+        debugPrint('[WS] DEVICE_DELETED 수신');
         disconnect();
         ApiService().authService.handleDeviceDeleted();
         return;
@@ -459,29 +460,29 @@ class WebSocketService {
 
       _notificationStreamController.add(data);
     } catch (e) {
-      print('[WS] 알림 메시지 파싱 에러: $e');
+      debugPrint('[WS] 알림 메시지 파싱 에러: $e');
     }
   }
 
   /// 채팅 메시지 수신 처리 (/user/queue/chat)
   void _onChatMessage(StompFrame frame) {
-    print('[WS] 채팅 메시지 수신: ${frame.body}');
+    debugPrint('[WS] 채팅 메시지 수신: ${frame.body}');
     if (frame.body == null) return;
 
     try {
       final data = jsonDecode(frame.body!) as Map<String, dynamic>;
       final event = ChatEvent.fromJson(data);
-      print('[WS] 채팅 이벤트 타입: ${event.type}');
+      debugPrint('[WS] 채팅 이벤트 타입: ${event.type}');
       _chatStreamController.add(event);
     } catch (e) {
-      print('[WS] 채팅 메시지 파싱 에러: $e');
+      debugPrint('[WS] 채팅 메시지 파싱 에러: $e');
     }
   }
 
   /// 채팅방 메시지 브로드캐스트 수신 처리 (/topic/chat.room.{roomId})
   /// 서버에서 MESSAGE, GIFT, LEAVE 타입을 보냄
   void _onChatRoomMessage(StompFrame frame) {
-    print('[WS] 채팅방 메시지 수신: ${frame.body}');
+    debugPrint('[WS] 채팅방 메시지 수신: ${frame.body}');
     if (frame.body == null) return;
 
     try {
@@ -505,7 +506,7 @@ class WebSocketService {
         _chatStreamController.add(event);
       }
     } catch (e) {
-      print('[WS] 채팅방 메시지 파싱 에러: $e');
+      debugPrint('[WS] 채팅방 메시지 파싱 에러: $e');
     }
   }
 
@@ -513,7 +514,7 @@ class WebSocketService {
   void subscribeToChatRoom(int roomId) {
     if (_chatRoomSubscriptions.containsKey(roomId)) return;
     final destination = '/topic/chat.room.$roomId';
-    print('[WS] $destination 구독');
+    debugPrint('[WS] $destination 구독');
     final unsub = _stompClient?.subscribe(
       destination: destination,
       callback: _onChatRoomMessage,
@@ -527,7 +528,7 @@ class WebSocketService {
   void unsubscribeFromChatRoom(int roomId) {
     final unsub = _chatRoomSubscriptions.remove(roomId);
     if (unsub != null) {
-      print('[WS] 채팅방 구독 해제: roomId=$roomId');
+      debugPrint('[WS] 채팅방 구독 해제: roomId=$roomId');
       unsub(unsubscribeHeaders: {});
     }
   }
@@ -535,7 +536,7 @@ class WebSocketService {
   /// 모든 채팅방 구독 해제
   void unsubscribeFromAllChatRooms() {
     for (final entry in _chatRoomSubscriptions.entries) {
-      print('[WS] 채팅방 구독 해제: roomId=${entry.key}');
+      debugPrint('[WS] 채팅방 구독 해제: roomId=${entry.key}');
       try {
         entry.value(unsubscribeHeaders: {});
       } catch (_) {

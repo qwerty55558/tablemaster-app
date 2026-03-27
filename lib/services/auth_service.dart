@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:uuid/uuid.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -243,7 +243,7 @@ class AuthService {
           )
           .timeout(const Duration(seconds: 10));
 
-      print('[AUTH] 등록 요청 응답: ${response.statusCode} - ${response.body}');
+      debugPrint('[AUTH] 등록 요청 응답: ${response.statusCode} - ${response.body}');
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -484,7 +484,7 @@ class AuthService {
 
   /// 디바이스 삭제 처리 (서버에서 DEVICE_DELETED 수신 시)
   Future<void> handleDeviceDeleted() async {
-    print('[AUTH] 디바이스 삭제 감지 → 토큰 초기화 후 재등록 요청');
+    debugPrint('[AUTH] 디바이스 삭제 감지 → 토큰 초기화 후 재등록 요청');
     await _clearTokens();
     _setStatus(AuthStatus.unregistered, '디바이스가 삭제되었습니다');
     // 자동 재등록 요청 → pending 상태로 전환 후 관리자 승인 polling 시작
@@ -518,12 +518,12 @@ class AuthService {
   /// pending 상태 polling 시작 (5초마다 상태 확인)
   void _startPendingPoll() {
     _stopPendingPoll();
-    print('[AUTH] pending polling 시작');
+    debugPrint('[AUTH] pending polling 시작');
     _pendingPollTimer = Timer.periodic(
       const Duration(seconds: 5),
       (_) async {
         if (_status == AuthStatus.pending) {
-          print('[AUTH] pending 상태 확인 중...');
+          debugPrint('[AUTH] pending 상태 확인 중...');
           await checkDeviceStatus();
         } else {
           _stopPendingPoll();
@@ -535,7 +535,7 @@ class AuthService {
   /// pending 상태 polling 중지
   void _stopPendingPoll() {
     if (_pendingPollTimer != null) {
-      print('[AUTH] pending polling 중지');
+      debugPrint('[AUTH] pending polling 중지');
       _pendingPollTimer?.cancel();
       _pendingPollTimer = null;
     }

@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 /// 서버 시간 동기화 유틸리티
 ///
 /// 디바이스 시계가 틀어져도 서버 시간 기준으로 정확한 경과 시간을 계산한다.
@@ -22,10 +24,10 @@ class ServerTime {
       _offsetMs = serverTime.millisecondsSinceEpoch -
           DateTime.now().millisecondsSinceEpoch;
       _synced = true;
-      print('[ServerTime] 동기화 완료: offset=${_offsetMs}ms '
+      debugPrint('[ServerTime] 동기화 완료: offset=${_offsetMs}ms '
           '(${_offsetMs > 0 ? "디바이스가 느림" : "디바이스가 빠름"})');
     } catch (e) {
-      print('[ServerTime] Date 헤더 파싱 실패: $e');
+      debugPrint('[ServerTime] Date 헤더 파싱 실패: $e');
     }
   }
 

@@ -18,6 +18,8 @@ enum ChatEventType {
   chatAccepted,
   chatRejected,
   chatRequestFailed,
+  chatGiftSent,
+  chatGiftReceived,
   chatError,
   chatClosed,
   chatWarning,
@@ -45,6 +47,7 @@ class ChatEvent {
   final SanctionType? sanctionType;
   final String? mutedUntil;
   final String? warningMessage;
+  final String? giftType;
 
   const ChatEvent({
     required this.type,
@@ -59,6 +62,7 @@ class ChatEvent {
     this.sanctionType,
     this.mutedUntil,
     this.warningMessage,
+    this.giftType,
   });
 
   factory ChatEvent.fromJson(Map<String, dynamic> json) {
@@ -82,8 +86,8 @@ class ChatEvent {
 
     return ChatEvent(
       type: type,
-      fromDeviceId: json['fromDeviceId'] as String?,
-      fromTableName: json['fromTableName'] as String?,
+      fromDeviceId: json['fromDeviceId'] as String? ?? json['senderDeviceId'] as String?,
+      fromTableName: json['fromTableName'] as String? ?? json['senderTableName'] as String?,
       roomId: json['roomId'] as int?,
       partnerDeviceId: json['partnerDeviceId'] as String?,
       partnerTableName: json['partnerTableName'] as String?,
@@ -93,6 +97,7 @@ class ChatEvent {
       sanctionType: _parseSanctionType(json['sanctionType'] as String?),
       mutedUntil: json['mutedUntil'] as String?,
       warningMessage: json['warningMessage'] as String?,
+      giftType: json['giftType'] as String?,
     );
   }
 
@@ -106,6 +111,10 @@ class ChatEvent {
         return ChatEventType.chatRejected;
       case 'CHAT_REQUEST_FAILED':
         return ChatEventType.chatRequestFailed;
+      case 'CHAT_GIFT_SENT':
+        return ChatEventType.chatGiftSent;
+      case 'CHAT_GIFT_RECEIVED':
+        return ChatEventType.chatGiftReceived;
       case 'CHAT_ERROR':
         return ChatEventType.chatError;
       case 'CHAT_CLOSED':
@@ -152,10 +161,16 @@ class ChatMessage {
     return ChatMessage(
       id: json['id'] as int?,
       roomId: json['roomId'] as int?,
-      senderDeviceId: json['senderDeviceId'] as String? ?? '',
-      senderTableName: json['senderTableName'] as String? ?? '',
-      content: json['content'] as String? ?? json['message'] as String? ?? '',
-      messageType: json['messageType'] as String? ?? json['type'] as String? ?? 'MESSAGE',
+      senderDeviceId: json['senderDeviceId'] as String? ?? json['fromDeviceId'] as String? ?? '',
+      senderTableName: json['senderTableName'] as String? ?? json['fromTableName'] as String? ?? '',
+      content: json['content'] as String? ??
+          json['message'] as String? ??
+          json['giftType'] as String? ??
+          '',
+      messageType: json['messageType'] as String? ??
+          json['eventType'] as String? ??
+          json['type'] as String? ??
+          'MESSAGE',
       timestamp: json['timestamp'] != null
           ? DateTime.parse(json['timestamp'] as String)
           : (json['createdAt'] != null

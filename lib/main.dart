@@ -1,6 +1,7 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'services/api_service.dart';
 import 'services/auth_service.dart';
@@ -67,7 +68,7 @@ class _MyAppState extends ConsumerState<MyApp> {
     if (state == AppLifecycleState.resumed) {
       final ws = WebSocketService();
       if (!ws.isConnected && _previousStatus == AuthStatus.authenticated) {
-        print('[LIFECYCLE] resumed: WS dead → 재연결');
+        debugPrint('[LIFECYCLE] resumed: WS dead → 재연결');
         ws.connect().then((_) {
           ref.read(tableRepositoryProvider).refresh();
         });
@@ -88,12 +89,13 @@ class _MyAppState extends ConsumerState<MyApp> {
 
       // Repository 구독 활성화 (WS 델타 수신 시작)
       ref.read(tableRepositoryProvider);
+      await _loadCatalogResources();
 
       // Fix 2: SNAPSHOT 타임아웃 → HTTP fallback
       Future.delayed(const Duration(seconds: 8), () {
         final repo = ref.read(tableRepositoryProvider);
         if (repo.tables.isEmpty) {
-          print('[INIT] SNAPSHOT 타임아웃 → HTTP fallback');
+          debugPrint('[INIT] SNAPSHOT 타임아웃 → HTTP fallback');
           repo.refresh();
         }
       });
@@ -150,7 +152,7 @@ class _MyAppState extends ConsumerState<MyApp> {
   void _onAuthStatusChange(AuthStatus status) {
     // 같은 상태로 중복 호출 무시
     if (status == _previousStatus) return;
-    print('[AUTH] 상태 변경: $_previousStatus → $status');
+    debugPrint('[AUTH] 상태 변경: $_previousStatus → $status');
 
     // 인증 성공
     if (status == AuthStatus.authenticated) {
@@ -158,17 +160,18 @@ class _MyAppState extends ConsumerState<MyApp> {
       if (_initialConnectDone) {
         _initialConnectDone = false;
       } else {
-        print('[AUTH] WebSocket 연결 시도');
+        debugPrint('[AUTH] WebSocket 연결 시도');
         WebSocketService().connect().then((_) {
           ref.read(tableRepositoryProvider).refresh();
-          print('[AUTH] 테이블 동기화 완료');
+          debugPrint('[AUTH] 테이블 동기화 완료');
         });
       }
+      _loadCatalogResources();
     }
 
     // 연결 끊김 (일시적) → 데이터 유지, 재연결 대기
     if (status == AuthStatus.connectionLost) {
-      print('[AUTH] 연결 끊김 → 데이터 유지, 재연결 대기');
+      debugPrint('[AUTH] 연결 끊김 → 데이터 유지, 재연결 대기');
       _previousStatus = status;
       return;
     }
@@ -176,17 +179,17 @@ class _MyAppState extends ConsumerState<MyApp> {
     // 인증됨 → 미등록/실패로 변경된 경우 처리 (영구적 인증 해제)
     if (_previousStatus == AuthStatus.authenticated &&
         (status == AuthStatus.unregistered || status == AuthStatus.failed)) {
-      print('[AUTH] 인증 해제 감지 → _handleAuthLost 호출');
+      debugPrint('[AUTH] 인증 해제 감지 → _handleAuthLost 호출');
       _handleAuthLost(status);
     }
 
     // connectionLost → authenticated 복구 시 동기화
     if (_previousStatus == AuthStatus.connectionLost &&
         status == AuthStatus.authenticated) {
-      print('[AUTH] 연결 복구 → WebSocket 재연결 + 동기화');
+      debugPrint('[AUTH] 연결 복구 → WebSocket 재연결 + 동기화');
       WebSocketService().connect().then((_) {
         ref.read(tableRepositoryProvider).refresh();
-        print('[AUTH] 재연결 후 테이블 동기화 완료');
+        debugPrint('[AUTH] 재연결 후 테이블 동기화 완료');
       });
     }
 
@@ -221,5 +224,38 @@ class _MyAppState extends ConsumerState<MyApp> {
 
     // 웰컴 페이지로 이동
     navigatorKey.currentState?.popUntil((route) => route.isFirst);
+  }
+
+  Future<void> _loadCatalogResources() async {
+    await ref.read(catalogResourcesProvider.notifier).load();
+    if (!mounted) return;
+
+    final context = navigatorKey.currentContext;
+    if (context == null) return;
+
+    final catalog = ref.read(catalogResourcesProvider);
+    final imageUrls = <String>{
+      for (final item in catalog.menuItems)
+        if (item.resolvedImageUrl != null) item.resolvedImageUrl!,
+      for (final item in catalog.giftItems)
+        if (item.resolvedImageUrl != null) item.resolvedImageUrl!,
+    };
+
+    for (final imageUrl in imageUrls) {
+      try {
+        if (!context.mounted) return;
+        if (imageUrl.endsWith('.svg')) {
+          final loader = SvgNetworkLoader(imageUrl);
+          await svg.cache.putIfAbsent(
+            imageUrl,
+            () => loader.loadBytes(context),
+          );
+        } else {
+          await precacheImage(NetworkImage(imageUrl), context);
+        }
+      } catch (_) {
+        // 이미지 프리캐시는 실패해도 진행
+      }
+    }
   }
 }

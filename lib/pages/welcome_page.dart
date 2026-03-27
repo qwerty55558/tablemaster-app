@@ -73,6 +73,7 @@ class _WelcomePageState extends ConsumerState<WelcomePage>
         ? const MatchingPage()
         : const SetupPage();
 
+    if (!mounted) return;
     Navigator.push(
       context,
       PageRouteBuilder(

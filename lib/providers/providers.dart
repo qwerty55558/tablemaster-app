@@ -5,6 +5,7 @@ import '../services/auth_service.dart';
 import '../services/websocket_service.dart';
 import '../repositories/table_repository.dart';
 import '../repositories/chat_repository.dart';
+import '../models/bill_model.dart';
 import '../models/chat_model.dart';
 import '../models/notification_model.dart';
 import '../models/table_model.dart';
@@ -44,7 +45,7 @@ final currentAuthStatusProvider = Provider<AuthStatus>((ref) {
   return asyncStatus.when(
     data: (status) => status,
     loading: () => ref.read(authServiceProvider).status,
-    error: (_, __) => AuthStatus.failed,
+    error: (error, stackTrace) => AuthStatus.failed,
   );
 });
 
@@ -292,6 +293,75 @@ final unreadCountProvider =
   return UnreadCountNotifier(apiService);
 });
 
+class CatalogResourcesState {
+  final bool isLoading;
+  final bool isLoaded;
+  final List<MenuItem> menuItems;
+  final List<GiftItem> giftItems;
+
+  const CatalogResourcesState({
+    this.isLoading = false,
+    this.isLoaded = false,
+    this.menuItems = const [],
+    this.giftItems = const [],
+  });
+
+  CatalogResourcesState copyWith({
+    bool? isLoading,
+    bool? isLoaded,
+    List<MenuItem>? menuItems,
+    List<GiftItem>? giftItems,
+  }) {
+    return CatalogResourcesState(
+      isLoading: isLoading ?? this.isLoading,
+      isLoaded: isLoaded ?? this.isLoaded,
+      menuItems: menuItems ?? this.menuItems,
+      giftItems: giftItems ?? this.giftItems,
+    );
+  }
+}
+
+final catalogResourcesProvider =
+    StateNotifierProvider<CatalogResourcesNotifier, CatalogResourcesState>((ref) {
+  final apiService = ref.watch(apiServiceProvider);
+  return CatalogResourcesNotifier(apiService);
+});
+
+class CatalogResourcesNotifier extends StateNotifier<CatalogResourcesState> {
+  final ApiService _apiService;
+  Future<void>? _loadFuture;
+
+  CatalogResourcesNotifier(this._apiService)
+      : super(const CatalogResourcesState());
+
+  Future<void> load({bool force = false}) async {
+    if (state.isLoaded && !force) return;
+    if (_loadFuture != null && !force) return _loadFuture;
+
+    final future = _load(force: force);
+    _loadFuture = future;
+    await future;
+  }
+
+  Future<void> _load({required bool force}) async {
+    state = state.copyWith(isLoading: true);
+
+    final results = await Future.wait([
+      _apiService.getMenuItems(),
+      _apiService.getGifts(),
+    ]);
+
+    state = state.copyWith(
+      isLoading: false,
+      isLoaded: true,
+      menuItems: results[0] as List<MenuItem>,
+      giftItems: results[1] as List<GiftItem>,
+    );
+
+    _loadFuture = null;
+  }
+}
+
 class UnreadCountNotifier extends StateNotifier<int> {
   final ApiService _apiService;
 
@@ -313,6 +383,176 @@ class UnreadCountNotifier extends StateNotifier<int> {
     if (mounted) state = 0;
   }
 }
+
+enum OrderPanelTab { order, bill }
+
+class OrderPanelState {
+  final bool isOpen;
+  final bool isLoading;
+  final bool isSubmitting;
+  final String? identifier;
+  final OrderPanelTab activeTab;
+  final List<MenuItem> menuItems;
+  final List<GiftItem> giftItems;
+  final Bill? bill;
+  final Map<int, int> selectedQuantities;
+
+  const OrderPanelState({
+    this.isOpen = false,
+    this.isLoading = false,
+    this.isSubmitting = false,
+    this.identifier,
+    this.activeTab = OrderPanelTab.order,
+    this.menuItems = const [],
+    this.giftItems = const [],
+    this.bill,
+    this.selectedQuantities = const {},
+  });
+
+  OrderPanelState copyWith({
+    bool? isOpen,
+    bool? isLoading,
+    bool? isSubmitting,
+    String? identifier,
+    bool clearIdentifier = false,
+    OrderPanelTab? activeTab,
+    List<MenuItem>? menuItems,
+    List<GiftItem>? giftItems,
+    Bill? bill,
+    bool clearBill = false,
+    Map<int, int>? selectedQuantities,
+  }) {
+    return OrderPanelState(
+      isOpen: isOpen ?? this.isOpen,
+      isLoading: isLoading ?? this.isLoading,
+      isSubmitting: isSubmitting ?? this.isSubmitting,
+      identifier: clearIdentifier ? null : (identifier ?? this.identifier),
+      activeTab: activeTab ?? this.activeTab,
+      menuItems: menuItems ?? this.menuItems,
+      giftItems: giftItems ?? this.giftItems,
+      bill: clearBill ? null : (bill ?? this.bill),
+      selectedQuantities: selectedQuantities ?? this.selectedQuantities,
+    );
+  }
+
+  int get selectedCount =>
+      selectedQuantities.values.fold(0, (sum, quantity) => sum + quantity);
+}
+
+final orderPanelProvider =
+    StateNotifierProvider<OrderPanelNotifier, OrderPanelState>((ref) {
+  final apiService = ref.watch(apiServiceProvider);
+  return OrderPanelNotifier(ref, apiService);
+});
+
+class OrderPanelNotifier extends StateNotifier<OrderPanelState> {
+  final Ref _ref;
+  final ApiService _apiService;
+
+  OrderPanelNotifier(this._ref, this._apiService) : super(const OrderPanelState());
+
+  Future<void> open(String identifier, {OrderPanelTab tab = OrderPanelTab.order}) async {
+    final catalogNotifier = _ref.read(catalogResourcesProvider.notifier);
+    await catalogNotifier.load();
+    final catalog = _ref.read(catalogResourcesProvider);
+
+    state = state.copyWith(
+      isOpen: true,
+      isLoading: true,
+      identifier: identifier,
+      activeTab: tab,
+    );
+
+    final billFuture = _apiService.getCurrentOrders(identifier);
+
+    final bill = await billFuture;
+
+    if (!mounted) return;
+
+    state = state.copyWith(
+      isLoading: false,
+      menuItems: catalog.menuItems,
+      giftItems: catalog.giftItems,
+      bill: bill,
+    );
+  }
+
+  void close() {
+    state = state.copyWith(isOpen: false, selectedQuantities: const {});
+  }
+
+  void setTab(OrderPanelTab tab) {
+    state = state.copyWith(activeTab: tab);
+  }
+
+  void setQuantity(int menuItemId, int quantity) {
+    final next = Map<int, int>.from(state.selectedQuantities);
+    if (quantity <= 0) {
+      next.remove(menuItemId);
+    } else {
+      next[menuItemId] = quantity;
+    }
+    state = state.copyWith(selectedQuantities: next);
+  }
+
+  Future<bool> submitOrder() async {
+    final identifier = state.identifier;
+    if (identifier == null || state.selectedQuantities.isEmpty) return false;
+
+    state = state.copyWith(isSubmitting: true);
+    final success = await _apiService.createOrder(
+      identifier,
+      state.selectedQuantities.entries
+          .map((entry) => {
+                'menuItemId': entry.key,
+                'quantity': entry.value,
+              })
+          .toList(),
+    );
+
+    if (!mounted) return success;
+
+    if (success) {
+      final bill = await _apiService.getCurrentOrders(identifier);
+      if (!mounted) return success;
+      _ref.invalidate(currentOrdersProvider(identifier));
+      state = state.copyWith(
+        isSubmitting: false,
+        bill: bill,
+        selectedQuantities: const {},
+        activeTab: OrderPanelTab.bill,
+      );
+    } else {
+      state = state.copyWith(isSubmitting: false);
+    }
+    return success;
+  }
+
+  Future<void> refreshBill() async {
+    final identifier = state.identifier;
+    if (identifier == null) return;
+    final bill = await _apiService.getCurrentOrders(identifier);
+    if (!mounted) return;
+    _ref.invalidate(currentOrdersProvider(identifier));
+    state = state.copyWith(bill: bill);
+  }
+
+  Future<void> refreshBillFor(String identifier) async {
+    final bill = await _apiService.getCurrentOrders(identifier);
+    if (!mounted) return;
+    _ref.invalidate(currentOrdersProvider(identifier));
+    state = state.copyWith(
+      identifier: identifier,
+      bill: bill,
+    );
+  }
+}
+
+final currentOrdersProvider =
+    FutureProvider.autoDispose.family<Bill?, String>((ref, identifier) async {
+  final apiService = ref.watch(apiServiceProvider);
+  return apiService.getCurrentOrders(identifier);
+});
 
 // ============================================================
 // Setup Form State (StateNotifier)

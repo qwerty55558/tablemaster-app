@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import '../models/chat_model.dart';
 import '../services/websocket_service.dart';
 
@@ -46,7 +47,7 @@ class ChatRepository {
   Stream<ChatEvent> get toastStream => _toastController.stream;
 
   void _handleEvent(ChatEvent event) {
-    print('[ChatRepo] 이벤트 수신: ${event.type}');
+    debugPrint('[ChatRepo] 이벤트 수신: ${event.type}');
 
     switch (event.type) {
       case ChatEventType.chatRequest:
@@ -83,6 +84,14 @@ class ChatRepository {
         break;
 
       case ChatEventType.chatRequestFailed:
+        _toastController.add(event);
+        break;
+
+      case ChatEventType.chatGiftSent:
+        _toastController.add(event);
+        break;
+
+      case ChatEventType.chatGiftReceived:
         _toastController.add(event);
         break;
 

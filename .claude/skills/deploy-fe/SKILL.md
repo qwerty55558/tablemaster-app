@@ -64,4 +64,5 @@ docker buildx rm "$BUILDER_NAME"
 - Flutter web 빌드가 반드시 Docker 빌드 전에 완료되어야 한다 (Dockerfile이 `build/web`을 COPY함).
 - `--dart-define=IS_PROD=true`가 핵심 — 이것 없으면 `.env.web`을 로드하게 됨.
 - colima 부스트 메모리는 16GB 고정.
-- 후처리(builder 정리, colima 원복)는 사용자가 직접 관리한다. 스킬에서 자동으로 수행하지 않는다.
+- 빌드 후 colima 원상 복구는 사용자가 직접 수행한다.
+- 빌더는 정리한다

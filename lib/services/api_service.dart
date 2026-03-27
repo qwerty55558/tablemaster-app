@@ -1,5 +1,6 @@
 import 'dart:convert';
 import '../config/api_config.dart';
+import '../models/bill_model.dart';
 import '../models/notification_model.dart';
 import '../models/table_model.dart';
 import 'auth_service.dart';
@@ -96,6 +97,93 @@ class ApiService {
     }
   }
 
+  /// 채팅 신고
+  Future<bool> reportChatRoom({
+    required int roomId,
+    required String reportedDeviceId,
+    required String reason,
+  }) async {
+    try {
+      final response = await _client
+          .post(
+            Uri.parse(
+              '${ApiConfig.baseUrl}${ApiConfig.deviceChatRooms}/$roomId/reports',
+            ),
+            body: jsonEncode({
+              'reportedDeviceId': reportedDeviceId,
+              'reason': reason,
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      return response.statusCode == 200 || response.statusCode == 201;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<List<MenuItem>> getMenuItems() async {
+    try {
+      final response = await _client
+          .get(Uri.parse('${ApiConfig.baseUrl}${ApiConfig.menuItems}'))
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as List<dynamic>;
+        return data
+            .map((json) => MenuItem.fromJson(json as Map<String, dynamic>))
+            .where((item) => item.isAvailable)
+            .toList();
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<List<GiftItem>> getGifts() async {
+    try {
+      final response = await _client
+          .get(Uri.parse('${ApiConfig.baseUrl}${ApiConfig.gifts}'))
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as List<dynamic>;
+        return data
+            .map((json) => GiftItem.fromJson(json as Map<String, dynamic>))
+            .where((item) => item.isAvailable)
+            .toList();
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<Bill?> getCurrentBill(String identifier) async {
+    return _getBill('/tables/$identifier/bill');
+  }
+
+  Future<Bill?> getCurrentOrders(String identifier) async {
+    return _getBill('/tables/$identifier/orders');
+  }
+
+  Future<bool> createOrder(
+    String identifier,
+    List<Map<String, dynamic>> items,
+  ) async {
+    try {
+      final response = await _client
+          .post(
+            Uri.parse('${ApiConfig.baseUrl}/tables/$identifier/orders'),
+            body: jsonEncode({'items': items}),
+          )
+          .timeout(const Duration(seconds: 10));
+      return response.statusCode == 200 || response.statusCode == 201;
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// 알림 목록 조회
   Future<List<NotificationModel>> getNotifications({int page = 0, int size = 20}) async {
@@ -158,6 +246,21 @@ class ApiService {
       return response.statusCode == 200;
     } catch (e) {
       return false;
+    }
+  }
+
+  Future<Bill?> _getBill(String path) async {
+    try {
+      final response = await _client
+          .get(Uri.parse('${ApiConfig.baseUrl}$path'))
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        return Bill.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+      }
+      return null;
+    } catch (_) {
+      return null;
     }
   }
 
