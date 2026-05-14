@@ -52,7 +52,8 @@ app.*.map.json
 opencode.json
 swagger-config.json
 .mcp.json
-#.env
-#.env.development
-#.env.production
-
+# Environment files (auto-managed)
+.env
+.env.*
+!.env.example
+!.env.sample
