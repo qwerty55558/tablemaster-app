@@ -1,16 +1,4 @@
-# app
+# 📱Tablemaster
+| 실제 외주 요구사항을 분석하여 설계한 실시간 매장 이벤트 관리 플랫폼. - Web, Api, App 3가지를 구현한 개인 프로젝트입니다.
 
-A new Flutter project.
-
-## Getting Started
-
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+상세 설명은 **[노션 링크](https://app.notion.com/p/clauminirockpt/Tablemaster-3425ade8cd87809cb37af8bb6996d609?source=copy_link)** 를 확인해주세요 
